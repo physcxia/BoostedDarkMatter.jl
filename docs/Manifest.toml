@@ -2,7 +2,7 @@
 
 julia_version = "1.8.3"
 manifest_format = "2.0"
-project_hash = "c38d7102501c90d735d60171974c4515345a8068"
+project_hash = "a17ff28824d92a43a5e930f07e0e084368a7b027"
 
 [[deps.ANSIColoredPrinters]]
 git-tree-sha1 = "574baf8110975760d391c710b6341da1afa48d8c"
@@ -13,6 +13,7 @@ version = "0.0.1"
 uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
 
 [[deps.BoostedDarkMatter]]
+deps = ["NumericalTools"]
 path = ".."
 uuid = "df2efd42-2b3d-4a7c-9adc-000ef4355e7c"
 version = "0.0.1"
@@ -66,6 +67,13 @@ uuid = "a63ad114-7e13-5084-954f-fe012c677804"
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
 version = "1.2.0"
+
+[[deps.NumericalTools]]
+git-tree-sha1 = "42b3118e64b47715338a489b06df1e3c91b539d5"
+repo-rev = "main"
+repo-url = "https://github.com/physcxia/NumericalTools.jl"
+uuid = "a0f06128-cd74-4043-ac90-c71291fe1646"
+version = "0.1.0"
 
 [[deps.Parsers]]
 deps = ["Dates", "SnoopPrecompile"]
