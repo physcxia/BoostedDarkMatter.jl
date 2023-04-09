@@ -1,5 +1,6 @@
 module BoostedDarkMatter
 
+export units
 export dmflux
 
 # Kinematics.jl
@@ -31,6 +32,9 @@ Broadcast.broadcastable(bdm::BDM) = Ref(bdm)
 dmflux(::BDM, Tchi) = error("unimplemented")
 dmmass(::BDM) = error("unimplemented")
 
+include("Units.jl")
+import .Units
+const units = Units
 include("Kinematics.jl")
 using .Kinematics
 include("Constants.jl")

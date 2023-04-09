@@ -157,7 +157,6 @@ function recoil_spectrum(xsec::XSec, T4, flux1, T1max, m1, m2; attenuation=nothi
         end
     end
 
-    # return rate_res[1] / (m2 * GEV_TO_KG * S_TO_DAY)
     return rate_res[1] / m2
 end
 function recoil_spectrum(
@@ -205,6 +204,5 @@ function recoil_spectrum(
             * Tchi * q)
     end
 
-    # return rate_res[1] * xsec.sigma0 / (8 * Tr * μχe^2 * me * GEV_TO_KG * S_TO_DAY)
     return rate_res[1] * factor
 end
