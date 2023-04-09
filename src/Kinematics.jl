@@ -153,7 +153,7 @@ which guarantees ``q > ΔE``.
 function p1_min_q(q, ΔE, m1)
     if q <= ΔE
         @warn "Kinematics Invalid: q = $q <= ΔE = $ΔE, Inf returned"
-        return Inf * oneunit(promote_type(typeof(q), typeof(ΔE), typeof(m1)))
+        return typemax(promote_type(typeof(q), typeof(ΔE), typeof(m1)))
     end
     return q / 2 + ΔE / 2 * sqrt(1 + 4m1^2 / ((q + ΔE) * (q - ΔE)))
 end
