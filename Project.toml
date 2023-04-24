@@ -5,8 +5,13 @@ version = "0.0.1"
 
 [deps]
 DarkMatterProfiles = "48b3a478-c9fa-42f4-b737-e59b1d0562ca"
+FiniteDifferences = "26cc04aa-876d-5657-8c51-4c34ba976000"
+JLD2 = "033835bb-8acc-5ee8-8aae-3f567f8a3819"
 MultiQuad = "8fca5bbe-a785-4bb7-9793-c0c8ddca5d4b"
 NumericalTools = "a0f06128-cd74-4043-ac90-c71291fe1646"
+OrdinaryDiffEq = "1dea7af3-3e70-54e6-95c3-0bf5283fa5ed"
+Roots = "f2b01f46-fcfa-551c-844a-d8ac1e96c665"
+SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
 
 [compat]
 julia = "1.6"

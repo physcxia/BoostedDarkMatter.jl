@@ -8,6 +8,12 @@ const MeV = 1e-3 * GeV
 const TeV = 1e3 * GeV
 const PeV = 1e6 * GeV
 
+const GV = GeV
+const V = 1e-9 * GV
+const kV = 1e-6 * GV
+const MV = 1e-3 * GV
+const TV = 1e3 * GV
+const PV = 1e6 * GV
 
 const fm = 1.0 / (197.3269804 * MeV)
 const mm = 1e12 * fm

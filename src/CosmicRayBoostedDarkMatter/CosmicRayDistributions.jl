@@ -1,3 +1,7 @@
+include("FluxConversion.jl")
+
+using JLD2: load
+
 abstract type CRDistribution end
 abstract type CRFlux end
 
@@ -13,22 +17,28 @@ function crflux(cr::CRFlux, coordinates; etype::EnergyType=ETEk)
 end
 
 @doc raw"""
-    crflux_Ekn(cr::CRFluxSBPLElectron, coordinates)
+    crflux_Ekn(cr::CRFluxSBPLElectron, coordinates::Tuple, args...; kwargs...)
+    crflux_Ekn(cr::CRFlux, r, b, l, Ekn, args...; kwargs...)
 
 Intensity in kinetic energy per nucleon ``\frac{dI}{dE_\text{kn}}``
-[m``^{-2}``s``^{-1}``sr``^{-1}``GeV^``{-1}``].
+[m``^{-2}``s``^{-1}``sr``^{-1}``GeV``^{-1}``].
 
 # Arguments
 
 - `T`: kinetic energy of CR electron
 
 """
-function crflux_Ekn(cr::CRFlux, coordinates::Tuple)
+function crflux_Ekn(
+    cr::CRFlux,
+    coordinates::Tuple{T, T, U},
+    args...;
+    kwargs...
+) where {T <: Number, U <: Number}
     _, __, Ekn = coordinates
-    return crflux_Ekn(cr, Ekn)
+    return crflux_Ekn(cr, Ekn, args..., kwargs...)
 end
-function crflux_Ekn(cr::CRFlux, r, b, l, Ekn)
-    return crflux_Ekn(cr, Ekn)
+function crflux_Ekn(cr::CRFlux, r, b, l, Ekn, args...; kwargs...)
+    return crflux_Ekn(cr, Ekn, args...; kwargs...)
 end
 
 @doc raw"""
@@ -63,10 +73,10 @@ Smooth broken power law parameterization of local CR electron flux:
 
 """
 Base.@kwdef struct CRFluxSBPLElectron{T <: Number, U <: Number, V <: Number} <: CRFlux
-    phi0::T = 5.02e-6
-    Ebr1::U = 46.0
-    Ebr2::U = 987.8
-    Ebr::U = 300.0
+    phi0::T = 5.02e-6 * units.GeV^-1 * units.m^-2 * units.sec^-1
+    Ebr1::U = 46.0 * units.GeV
+    Ebr2::U = 987.8 * units.GeV
+    Ebr::U = 300.0 * units.GeV
     k::V = 10.0
     gamma1::V = 3.24
     gamma2::V = 3.1
@@ -79,6 +89,7 @@ function crflux_Ekn(cr::CRFluxSBPLElectron, T::Number)
             * (T / cr.Ebr)^-cr.gamma2
             * (1 + (T / cr.Ebr2)^cr.k)^((cr.gamma2 - cr.gamma3) / cr.k))
 end
+crflux_Ek(cr::CRFluxSBPLElectron, T::Number) = crflux_Ekn(cr, T)
 
 
 @doc raw"""
@@ -116,10 +127,10 @@ cutoff energies are set as free parameters for convenience.
 
 """
 Base.@kwdef struct CRFluxLISElectron{T <: Number, U <: Number} <: CRFlux
-    Tcut1::T = 0.002
-    Tbr::T = 6.88
-    Tcut2::T = 90.0
-    unitflux::U = 1.0
+    Tcut1::T = 0.002 * units.GeV
+    Tbr::T = 6.88 * units.GeV
+    Tcut2::T = 90.0 * units.GeV
+    unitflux::U = units.GeV^-1 * units.m^-2 * units.sec^-1
 end
 function crflux_Ekn(cr::CRFluxLISElectron, Ek::Number)
         if Ek < cr.Tcut1 || Ek > cr.Tcut2
@@ -130,4 +141,93 @@ function crflux_Ekn(cr::CRFluxLISElectron, Ek::Number)
             return cr.unitflux*1.181e11*T^-12.061/(1 + 4.307e8*T^-9.269 + 3.125e8*T^-10.697)
         end
         return cr.unitflux*(995.598 * T^-3.505 + 4.423 * T^-2.62)
+end
+
+
+@doc raw"""
+    CRFluxLISHelMod2017{T <: Number, U <: Number} <: CRFlux
+
+A parametrization of local interstellar CR nuclei flux:
+
+```math
+    F(R) × R^{2.7}
+=
+    \begin{cases}
+    ∑_{i=0}^5 a_i R^i, & R ≤ 1 \text{GV}, \\
+    b + \frac{c}{R} + \frac{d_1}{d_2 + R} + \frac{e_1}{e_2 + R} + \frac{f_1}{f_2 + R) + gR,
+    & R ≥ 1 \text{GV}
+    \end{cases},
+```
+
+where ``R`` is rigidity and the unit is [m``^{-2}`` s``^{-1}`` sr``^{-1}`` GV``^{-1}``].
+
+# References
+
+- M. J. Boschini et al., 2017. Solution of Heliospheric Propagation: Unveiling the Local
+    Interstellar Spectra of Cosmic-ray Species.
+    [Astrophys. J. 840, 115.](https://doi.org/10.3847/1538-4357/aa6e4f)
+
+"""
+Base.@kwdef struct CRFluxLISHelMod2017{T <: Number, U <: Number} <: CRFlux
+    params::Dict{String, Dict{Char, Vector{Float64}}} = Dict(
+        "Proton" => Dict(
+            'a' => [94.1, -831., 0., 16700., -10200., 0.],
+            'b' => [10800.],
+            'c' => [8590.],
+            'd' => [-4230000., 3190.],
+            'e' => [274000., 17.4],
+            'f' => [-39400., 0.464],
+            'g' => [0.]
+        ),
+        "He" => Dict(
+            'a' => [1.14, 0., -118., 578., 0., -87.],
+            'b' => [3120.],
+            'c' => [-5530.],
+            'd' => [3370., 1.29],
+            'e' => [134000., 88.5],
+            'f' => [-1170000., 861.],
+            'g' => [0.03]
+        )
+    )
+    A::Dict{String, Int} = Dict("Proton" => 1, "He" => 4)
+    Z::Dict{String, Int} = Dict("Proton" => 1, "He" => 2)
+    Rbr::Dict{String, T} = Dict("Proton" => 1.0, "He" => 2.0)
+    Rcut::T = 0.2
+    unitflux::U = units.GV^-1 * units.m^-2 * units.sec^-1
+end
+function crflux_R(cr::CRFluxLISHelMod2017, R, particle="Proton")
+    df = cr.params[particle]
+
+    Rbr = cr.Rbr[particle]
+    if R > Rbr
+        return (df['b'][1]
+                + df['c'][1] / R
+                + df['d'][1] / (df['d'][2] + R)
+                + df['e'][1] / (df['e'][2] + R)
+                + df['f'][1] / (df['f'][2] + R)
+                + df['g'][1] * R) * R^-2.7 * cr.unitflux
+    elseif R > cr.Rcut
+        return sum([a * R^(i-1) for (i, a) in enumerate(df['a'])]) * R^-2.7 * cr.unitflux
+    end
+    return zero(cr.unitflux)
+end
+function crflux_Ek(cr::CRFluxLISHelMod2017, Ek, particle="Proton")
+    A = cr.A[particle]
+    Z = cr.Z[particle]
+    R = Ek_to_R(Ek, Z, A)
+    return flux_R_to_Ek(R, crflux_R(cr, R, particle), Z, A)
+end
+function crflux_Ekn(cr::CRFluxLISHelMod2017, Ekn, particle="Proton")
+    A = cr.A[particle]
+    Z = cr.Z[particle]
+    R = Ekn_to_R(Ekn, Z, A)
+    return flux_R_to_Ekn(R, crflux_R(cr, R, particle), Z, A)
+end
+
+
+struct CRDGalprop <: CRDistribution
+    crdata::Dict{String, Any}
+end
+function CRDGalprop(crfilename::String)
+    data = load(crfilename)
 end

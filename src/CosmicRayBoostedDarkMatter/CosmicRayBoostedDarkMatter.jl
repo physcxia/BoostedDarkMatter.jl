@@ -4,7 +4,6 @@ using .Kinematics: T1_min
 
 using DarkMatterProfiles: DMProfile, DMPNFW, dmdensity_galactic
 using MultiQuad: tplquad, quad
-using NumericalTools: loginterpolator
 
 
 Base.@kwdef mutable struct CRDM <: BDM
@@ -14,6 +13,7 @@ Base.@kwdef mutable struct CRDM <: BDM
     Ekn_max::Dict = Dict("Electron" => 100)
     dmprofile::DMProfile = DMPNFW()
     xsec::XSec = XSecDMElectronVectorMediator()
+    selected_cr::Vector{String} = collect(keys(crdist))
 end
 function crdist!(bdm::CRDM, crdist::Dict)
     bdm.crdist = crdist
@@ -23,6 +23,8 @@ xsec0!(bdm::CRDM, sigma0) = xsec0!(bdm.xsec, sigma0)
 mediatormass!(bdm::CRDM, m) = mediatormass!(bdm.xsec, m)
 dmmass(bdm::CRDM) = dmmass(bdm.xsec)
 xsec0(bdm::CRDM) = xsec0(bdm.xsec)
+mediatormass(bdm::CRDM) = mediatormass(bdm.xsec)
+select_cr!(bdm::CRDM, crs) = bdm.selected_cr = crs
 
 """
     dmflux(bdm::CRDM, Tchi; Ekn_cutoff=nothing, fluxunit=1.0, options...)
@@ -48,7 +50,8 @@ to calculate the flux of CRDM produced by all particles set.
 """
 function dmflux(bdm::CRDM, Tchi; Ekn_cutoff=nothing, fluxunit=1.0, options...)
     flux = 0 * fluxunit
-    for particle in keys(bdm.crdist)
+    old_target = gettarget(bdm.xsec)
+    for particle in bdm.selected_cr
         A = NUCLEUS_A[particle]
         if isnothing(Ekn_cutoff)
             cutoff = bdm.Ekn_max[particle] * A
@@ -60,6 +63,7 @@ function dmflux(bdm::CRDM, Tchi; Ekn_cutoff=nothing, fluxunit=1.0, options...)
             throw(KeyError("Unknown Ekn_cutoff type."))
         end
 
+        settarget!(bdm.xsec, particle)
         mi = bdm.crmass[particle]
         Ti_min = T1_min(bdm.xsec, Tchi, mi, dmmass(bdm))
 
@@ -73,6 +77,7 @@ function dmflux(bdm::CRDM, Tchi; Ekn_cutoff=nothing, fluxunit=1.0, options...)
         end
         flux += flux_res[1]
     end
+    settarget!(bdm.xsec, old_target)
     return flux
 end
 
@@ -137,6 +142,7 @@ end
 """Dark matter profile times cosmic ray flux. """
 function _los_integrand(bdm::CRDM, r, l, b, Ek, particle)
     A = NUCLEUS_A[particle]
+    # TODO rsun is not general
     return (bdm.crdist[particle](r, l, b, Ek / A) / A
             * dmdensity_galactic(bdm.dmprofile, r, l, b, rsun=bdm.dmprofile.rsun))
 end

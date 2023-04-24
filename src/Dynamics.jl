@@ -1,5 +1,5 @@
 using MultiQuad: dblquad, quad
-using NumericalTools: sqrtm1
+using SpecialFunctions: sphericalbesselj
 
 abstract type XSec end
 abstract type XSecElastic <: XSec end
@@ -19,16 +19,21 @@ function set_parameters!(xsec::XSec; params...)
         hasproperty(xsec, key) && setproperty!(xsec, key, value)
     end
 end
+settarget!(::XSec, target) = nothing
+gettarget(::XSec) = nothing
 
 Kinematics.T1_min(::XSec, T4, m1, m2) = error("unimplemented")
 Kinematics.T1_min(::XSecElastic, T4, m1, m2) = T1_min(T4, m1, m2)
+
+Kinematics.T4_max(::XSec, T1, m1, m2) = error("unimplemented")
+Kinematics.T4_max(::XSecElastic, T1, m1, m2) = T4_max(T1, m1, m2)
 
 dm_formfactor(::XSec, Q2) = error("unsupproted form factor")
 dm_formfactor(::XSec, Q2, T1) = error("unsupproted form factor")
 
 
 """
-    dxsec(xsec::XSec, T4, T1, m1, m2)
+    dxsecdT4(xsec::XSec, T4, T1, m1, m2)
 
 Differential cross section ``\\frac{dσ}{dT_4}(T_4, T_1, m_1, m_2)``.
 
@@ -42,19 +47,42 @@ Differential cross section ``\\frac{dσ}{dT_4}(T_4, T_1, m_1, m_2)``.
 """
 dxsecdT4(::XSec, T4, T1, m1, m2) = error("unimplemented")
 
+function total_xsec(xsec::XSec, T1, m1, m2; options...)
+    Tr_max = T4_max(xsec, T1, m1, m2)
+    res_quad = quad(zero(T1), Tr_max; options...) do T4
+        return dxsecdT4(xsec, T4, T1, m1, m2)
+    end
+    # res_quad = quad(log(1e-300), log(Tr_max); options...) do lnT4
+    #     T4 = exp(lnT4)
+    #     return dxsecdT4(xsec, T4, T1, m1, m2) * T4
+    # end
+    return res_quad[1]
+end
+
+
 Base.@kwdef mutable struct
 XSecDMElectronVectorMediator{T <: Number, U <: Number, V <: Number} <: XSecDMElectronElastic
-    sigma0::T = 1e-30
-    mchi::U = 1e-6
-    mmed::U = 1e-6
+    sigma0::T = 1e-30 * units.cm2
+    mchi::U = 1 * units.keV
+    mmed::U = 1 * units.keV
     me::U = ELECTRON_MASS
     alpha::V = 1/137
+    limit_case::String = ""
 end
 function XSecDMElectronVectorMediator(sigma0, mchi, mmed, me, alpha)
     return XSecDMElectronVectorMediator(sigma0, promote(mchi, mmed, me)..., alpha)
 end
 function dxsecdT4(xsec::XSecDMElectronVectorMediator, T4, T1, m1, m2)
     μχe = reduce_m(xsec.mchi, xsec.me)
+    if xsec.limit_case == "light"
+        return (xsec.sigma0 * (xsec.alpha*xsec.me)^4 / μχe^2
+                * (2*m2*(m1 + T1)^2 - T4*((m1 + m2)^2 + 2*m2*T1) + m2*T4*T4)
+                / (4*T1*(2*m1 + T1)*(2*m2*T4)^2))
+    elseif xsec.limit_case == "heavy"
+        return (xsec.sigma0 / μχe^2
+                * (2*m2*(m1 + T1)^2 - T4*((m1 + m2)^2 + 2*m2*T1) + m2*T4*T4)
+                / (4*T1*(2*m1 + T1)))
+    end
     return (xsec.sigma0 * ((xsec.alpha*xsec.me)^2 + xsec.mmed^2)^2 / μχe^2
             * (2*m2*(m1 + T1)^2 - T4*((m1 + m2)^2 + 2*m2*T1) + m2*T4*T4)
             / (4*T1*(2*m1 + T1)*(2*m2*T4+xsec.mmed*xsec.mmed)^2))
@@ -77,9 +105,9 @@ Scalar mediated DM-electron scattering cross section.
 """
 Base.@kwdef mutable struct
 XSecDMElectronScalarMediator{T <: Number, U <: Number, V <: Number} <: XSecDMElectronElastic
-    sigma0::T = 1e-30
-    mchi::U = 0.1
-    mmed::U = 1e-6
+    sigma0::T = 1e-30 * units.cm2
+    mchi::U = 0.1 * units.GeV
+    mmed::U = 1e-6 * units.GeV
     alpha::V = 1/137
 end
 function dxsecdT4(xsec::XSecDMElectronScalarMediator, T4, T1, m1, m2)
@@ -115,6 +143,43 @@ end
 function Base.setproperty!(xsec::XSecDMElectronBound, name::Symbol, value)
     hasproperty(xsec, name) && return setfield!(xsec, name, value)
     return setproperty!(xsec.freexsec, name, value)
+end
+# function dxsecdT4(xsec::XSecDMElectronBound, T4, T1, m1, m2)
+# TODO
+# end
+
+
+Base.@kwdef mutable struct
+XSecDMNucleusConstant{T <: Number, U <: Number} <: XSecElastic
+    sigma0::T = 1e-30 * units.cm2
+    mchi::U = 0.1 * units.GeV
+    nucleus::String = "H"
+    ff::String = "helm"
+    lambda_dict::Dict = Dict(
+        "Proton" => 0.77 * units.GeV^2,
+        "He4" => 0.41 * units.GeV^2,
+        "H" => 0.77 * units.GeV^2,
+        "He" => 0.41 * units.GeV^2,
+    )
+end
+settarget!(xsec::XSecDMNucleusConstant, nuc) = xsec.nucleus = nuc
+gettarget(xsec::XSecDMNucleusConstant) = xsec.nucleus
+function dxsecdT4(xsec::XSecDMNucleusConstant, T4, T1, m1, m2)
+    return dmnucleus_xsec_eff(xsec) * formfactor(xsec, 2m2*T4)^2 / T4_max(xsec, T1, m1, m2)
+end
+function dmnucleus_xsec_eff(xsec::XSecDMNucleusConstant)
+    return (xsec0(xsec) * NUCLEUS_A[xsec.nucleus]^2
+        * (reduce_m(dmmass(xsec), NUCLEUS_MASS[xsec.nucleus]) / reduce_m(dmmass(xsec), PROTON_MASS))^2)
+end
+function formfactor(xsec::XSecDMNucleusConstant, Q2)
+    if xsec.ff == "const"
+        return one(Q2)
+    end
+    A = NUCLEUS_A[xsec.nucleus]
+    if xsec.ff == "helm" && A > 7
+        return ff_helm(Q2, A)
+    end
+    return 1 / (1 + Q2 / xsec.lambda_dict[xsec.nucleus]^2)^2
 end
 
 
@@ -206,3 +271,69 @@ function recoil_spectrum(
 
     return rate_res[1] * factor
 end
+
+
+@doc raw"""
+    ff_helm(Q2, A; s=units.fm)
+
+Helm form factor:
+
+```math
+    F_\text{Helm}(Q^2)
+=
+    \frac{3 j_1(qR_1)}{qR_1} e^{-Q^2 s^2 / 2},
+```
+
+where ``j_1`` is the spherical Bessel function of the first kind, ``q = \sqrt{Q^2}``,
+``R_A = 1.2 A^{1/3}`` fm, ``R_1 = \sqrt{R_A^2 - 5s^2}``, and ``s = 1`` fm.
+
+# Arguments
+
+- `Q2`: Momentum transfer squared.
+- `A`: Nucleon number.
+
+# Keywords
+
+- `s=units.fm`: The length scale, default 1 fm.
+
+# References
+
+- Lewin, J.D.D., Smith, P.F.F., 1996. Review of mathematics, numerical factors, and
+    corrections for dark matter experiments based on elastic nuclear recoil.
+    [Astroparticle Physics 6, 87–112.](https://doi.org/10.1016/S0927-6505(96)00047-3)
+- Engel, J., 1991. Nuclear form factors for the scattering of weakly interacting massive
+    particles. [Physics Letters B 264, 114–119.]
+    (https://doi.org/10.1016/0370-2693(91)90712-Y)
+
+"""
+function ff_helm(Q2, A; s=units.fm)
+    # Q2 > 2eps(Q2) || return one(Q2)
+    q = sqrt(Q2)  # GeV
+    RA = 1.2 * A^(1/3) * s
+    R1 = sqrt(RA^2 - 5s^2)
+    q_R1 = q * R1
+    # return 3 * sphericalbesselj(1, q_R1) / (q_R1) * exp(-Q2 * s^2 / 2)
+    return _ff_Helm_core(q_R1/oneunit(q_R1)) * exp(-Q2 * s^2 / 2)
+end
+
+function _ff_Helm_core(x)
+    if x >= 1e-1
+        return 3.0 * (sin(x) - x * cos(x)) / x^3
+    elseif x > 1e-2
+        x2 = x * x;
+        return 1.0 + x2 * (
+                -0.1 + x2 * (
+                 3.5714285714285714286e-3 + x2 * (
+                  -6.6137566137566137566e-5 + x2 * 7.5156325156325156325e-7)))
+    elseif x > 1e-4
+        x2 = x * x;
+        return 1.0 + x2 * (-0.1 + x2 * 3.5714285714285714e-3);
+    elseif x > 1e-8
+        return 1.0 - 0.1 * x * x;
+    end
+    return one(x);
+end
+
+# WARNING temporary using
+Kinematics.T4_max(::XSecDMElectronVectorMediator, T1, m1, m2) = T4_max(T1, m1, m2)
+Kinematics.T4_max(::XSecDMElectronBound, T1, m1, m2) = T4_max(T1, m1, m2)
