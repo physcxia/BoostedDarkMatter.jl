@@ -1,4 +1,5 @@
 include("FluxConversion.jl")
+using Interpolations: linear_interpolation
 
 using JLD2: load
 
@@ -10,9 +11,9 @@ Broadcast.broadcastable(cr::CRFlux) = Ref(cr)
 
 @enum EnergyType ETR ETEk ETEkn ETEt
 
-function crflux(cr::CRFlux, coordinates; etype::EnergyType=ETEk)
+function crflux(cr::CRFlux, coordinates; etype::EnergyType=ETEk, kwargs...)
     if etype == ETEk
-        return crflux_Ekn(cr, coordinates)
+        return crflux_Ekn(cr, coordinates, kwargs...)
     end
 end
 
@@ -154,10 +155,11 @@ A parametrization of local interstellar CR nuclei flux:
 =
     \begin{cases}
     ∑_{i=0}^5 a_i R^i, & R ≤ 1 \text{GV}, \\
-    b + \frac{c}{R} + \frac{d_1}{d_2 + R} + \frac{e_1}{e_2 + R} + \frac{f_1}{f_2 + R) + gR,
+    b + \frac{c}{R} + \frac{d_1}{d_2 + R} + \frac{e_1}{e_2 + R} + \frac{f_1}{f_2 + R} + gR,
     & R ≥ 1 \text{GV}
     \end{cases},
 ```
+
 
 where ``R`` is rigidity and the unit is [m``^{-2}`` s``^{-1}`` sr``^{-1}`` GV``^{-1}``].
 
@@ -224,10 +226,96 @@ function crflux_Ekn(cr::CRFluxLISHelMod2017, Ekn, particle="Proton")
     return flux_R_to_Ekn(R, crflux_R(cr, R, particle), Z, A)
 end
 
+abstract type CRDGalprop <: CRDistribution end
 
-struct CRDGalprop <: CRDistribution
-    crdata::Dict{String, Any}
+function crflux_Ekn(cr::CRDGalprop, coordinates::Tuple; particle="Proton")
+    return crflux_Ekn(cr, coordinates...; particle=particle)
 end
-function CRDGalprop(crfilename::String)
+function crflux_Ekn(cr::CRDGalprop, coordinates...; particle="Proton")
+    if particle isa String
+        if lowercase(particle) == "all"
+            return sum([crflux(coordinates...) for (_, crflux) in cr.crflux])
+        elseif lowercase(particle) == "proton"
+            return sum([cr.crflux[p](coordinates...)
+                        for p in ["Hydrogen_1", "secondary_protons"]
+                        if p in keys(cr.crflux)])
+        elseif particle in keys(NUCLEUS_NAME)
+            return sum([cr.crflux[p](coordinates...)
+                        for p in _find_isotopes(cr, NUCLEUS_NAME[particle])])
+        else
+            return cr.crflux[particle](coordinates...)
+        end
+    elseif particle isa AbstractVector
+        return sum([crflux_Ekn(cr, coordinates...; particle=p) for p in particle])
+    end
+    error("unknown particle: $particle")
+end
+
+function make_crflux_dict_galactic(
+    cr::CRDGalprop, particles::AbstractVector, rsun=8.5*units.kpc
+)
+    return Dict(
+        (p => (r, b, l, Ek) -> crflux_Ek(cr, r, b, l, Ek; rsun=rsun, particle=p))
+        for p in particles
+    )
+end
+function make_crflux_dict_galactic(cr::CRDGalprop)
+    particles = replace!(collect(keys(NUCLEUS_NAME)), "H" => "Proton")
+    return make_crflux_dict_galactic(cr::CRDGalprop, particles)
+end
+
+function _find_isotopes(cr::CRDGalprop, particle)
+    iso_names = [key for key in keys(cr.crflux) if occursin(particle, key)]
+    length(iso_names) > 0 || error("$particle not found")
+    return iso_names
+end
+
+struct CRDGalpropCylindrical{T <: Number, U <: Number, V <: Number} <: CRDGalprop
+    r::Vector{Float64}
+    z::Vector{Float64}
+    Ekn::Vector{Float64}
+    crflux::Dict{String, Function}
+    Eunit::T
+    coorunit::U
+    fluxunit::V
+end
+function CRDGalpropCylindrical(
+    crfilename::String;
+    Eunit=units.GeV,
+    coorunit=units.kpc,
+    fluxunit=units.cm^-2 * units.sec^-1 * units.GeV^-1,
+)
     data = load(crfilename)
+    r = data["r"]
+    z = data["z"]
+    Ekn = data["Ekin"]
+    lnEkn = log.(Ekn)
+    crflux = Dict{String, Function}()
+    for (key, dset) in data
+        key != "r" && key != "z" && key != "Ekin" || continue
+        p_name = split(key, '/')[1]
+        lndset = @. ifelse(dset <= 0, -Inf, log(dset))
+        itp = linear_interpolation(
+            (r, z, lnEkn),
+            permutedims(lndset, (3, 2, 1)),
+            extrapolation_bc=-Inf
+        )
+
+        function wrapper(r, z, Ekn)
+            flux = exp(itp(r / coorunit, z / coorunit, log(Ekn / Eunit)))
+            return isnan(flux) ? zero(fluxunit) : flux * fluxunit
+        end
+
+        crflux[p_name] = wrapper
+    end
+    return CRDGalpropCylindrical(r, z, Ekn, crflux, Eunit, coorunit, fluxunit)
+end
+function crflux_Ek(
+    crd::CRDGalpropCylindrical, r, b, l, Ek;
+    rsun=8.5*units.kpc, particle="Proton"
+)
+    z = r * sin(b)
+    rho = sqrt(rsun^2 + r * cos(b) * (r * cos(b) - 2 * rsun*cos(l)))
+    A = NUCLEUS_A[particle]
+    return crflux_Ekn(crd, rho, z, Ek / A; particle=particle) / A
 end

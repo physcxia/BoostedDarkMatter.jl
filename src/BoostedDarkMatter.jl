@@ -26,6 +26,8 @@ export CRDM, kfactor, kfactor!, crdist!, select_cr!
 export CRDistribution, CRFlux, EnergyType, crflux, crflux_Ekn
 export CRFluxSBPLElectron, CRFluxLISElectron
 export CRFluxLISHelMod2017
+export CRDGalprop, CRDGalpropCylindrical
+export make_crflux_dict_galactic
 
 # Attenuation.jl
 export Attenuation, dmspectrum_z, cache_dTdz!
@@ -46,6 +48,7 @@ const units = Units
 include("Kinematics.jl")
 using .Kinematics
 include("Constants.jl")
+include("Particles.jl")
 include("Dynamics.jl")
 include("CosmicRayBoostedDarkMatter/CosmicRayBoostedDarkMatter.jl")
 include("Attenuation.jl")
