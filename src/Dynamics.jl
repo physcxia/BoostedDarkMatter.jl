@@ -21,6 +21,7 @@ function set_parameters!(xsec::XSec; params...)
 end
 settarget!(::XSec, target) = nothing
 gettarget(::XSec) = nothing
+gettarget(::XSecDMElectronElastic) = "Electron"
 
 Kinematics.T1_min(::XSec, T4, m1, m2) = error("unimplemented")
 Kinematics.T1_min(::XSecElastic, T4, m1, m2) = T1_min(T4, m1, m2)
@@ -47,16 +48,20 @@ Differential cross section ``\\frac{dσ}{dT_4}(T_4, T_1, m_1, m_2)``.
 """
 dxsecdT4(::XSec, T4, T1, m1, m2) = error("unimplemented")
 
-function total_xsec(xsec::XSec, T1, m1, m2; options...)
+function total_xsec(xsec::XSec, T1, m1, m2; Trcut=0*units.eV, options...)
     Tr_max = T4_max(xsec, T1, m1, m2)
-    res_quad = quad(zero(T1), Tr_max; options...) do T4
-        return dxsecdT4(xsec, T4, T1, m1, m2)
+    # res, err = quad(Trcut, Tr_max; options...) do T4
+    #     return dxsecdT4(xsec, T4, T1, m1, m2)
+    # end
+    res, err = quad(log(Trcut), log(Tr_max); options...) do lnT4
+        T4 = exp(lnT4)
+        return dxsecdT4(xsec, T4, T1, m1, m2) * T4
     end
     # res_quad = quad(log(1e-300), log(Tr_max); options...) do lnT4
     #     T4 = exp(lnT4)
     #     return dxsecdT4(xsec, T4, T1, m1, m2) * T4
     # end
-    return res_quad[1]
+    return res, err
 end
 
 
@@ -82,16 +87,24 @@ function dxsecdT4(xsec::XSecDMElectronVectorMediator, T4, T1, m1, m2)
         return (xsec.sigma0 / μχe^2
                 * (2*m2*(m1 + T1)^2 - T4*((m1 + m2)^2 + 2*m2*T1) + m2*T4*T4)
                 / (4*T1*(2*m1 + T1)))
+    elseif isempty(xsec.limit_case)
+        return (xsec.sigma0 * ((xsec.alpha*xsec.me)^2 + xsec.mmed^2)^2 / μχe^2
+                * (2*m2*(m1 + T1)^2 - T4*((m1 + m2)^2 + 2*m2*T1) + m2*T4*T4)
+                / (4*T1*(2*m1 + T1)*(2*m2*T4+xsec.mmed*xsec.mmed)^2))
     end
-    return (xsec.sigma0 * ((xsec.alpha*xsec.me)^2 + xsec.mmed^2)^2 / μχe^2
-            * (2*m2*(m1 + T1)^2 - T4*((m1 + m2)^2 + 2*m2*T1) + m2*T4*T4)
-            / (4*T1*(2*m1 + T1)*(2*m2*T4+xsec.mmed*xsec.mmed)^2))
+    throw(KeyError("Unknown limit_case: $(xsec.limit_case)"))
 end
+""" A Non-relativistic approximation for direct detection. """
 function dm_formfactor(xsec::XSecDMElectronVectorMediator, Q2, Tchi)
     # return ((xsec.alpha^2 * me^2 + xsec.mmed^2)^2 / (Q2 + xsec.mmed^2)^2
     #     * (8me^2 * (Tchi + xsec.mchi)^2 - 2me*Q2*((xsec.mchi + me)^2 + 2me * Tchi) + Q2^2)
     #     / (8me^2 * xsec.mchi^2))
     # non-relativistic approximation
+    if xsec.limit_case == "light"
+        return (xsec.alpha^2 * xsec.me^2)^2 / Q2^2 * (Tchi + xsec.mchi)^2 / xsec.mchi^2
+    elseif xsec.limit_case == "heavy"
+        return (Tchi + xsec.mchi)^2 / xsec.mchi^2
+    end
     return ((xsec.alpha^2 * xsec.me^2 + xsec.mmed^2)^2 / (Q2 + xsec.mmed^2)^2
         * (Tchi + xsec.mchi)^2 / xsec.mchi^2)
 end
@@ -126,9 +139,10 @@ struct IronizationFormFactor
 end
 
 
-Base.@kwdef mutable struct XSecDMElectronBound{T <: XSec} <: XSec
-    freexsec::T = XSecDMElectronVectorMediator()
-    ironff = (_, _) -> 1
+Base.@kwdef mutable struct XSecDMElectronBound{X <: XSec, F <: Function, T <: Number} <: XSec
+    freexsec::X = XSecDMElectronVectorMediator()
+    ionff::F = (_, _) -> 1
+    Eb::T = 25.7units.eV
 end
 # dmmass!(xsec::XSecDMElectronBound, mchi) = dmmass!(xsec.freexsec, mchi)
 # xsec0!(xsec::XSecDMElectronBound, sigma0) = xsec0!(xsec.freexsec, sigma0)
@@ -144,9 +158,33 @@ function Base.setproperty!(xsec::XSecDMElectronBound, name::Symbol, value)
     hasproperty(xsec, name) && return setfield!(xsec, name, value)
     return setproperty!(xsec.freexsec, name, value)
 end
-# function dxsecdT4(xsec::XSecDMElectronBound, T4, T1, m1, m2)
-# TODO
-# end
+
+
+function T1_min(xsec::XSecDMElectronBound, T4, m1, m2)
+    # FIXME
+    # ΔE = T4 + xsec.Eb
+    # q = sqrt(
+    # p1min = p1_min_q(q, ΔE, m1)
+    T1_min(T4, m1, m2)
+end
+""" using non-relativistic approximation """
+function dxsecdT4(xsec::XSecDMElectronBound, T4, T1, m1, m2; kwargs...)
+    ΔE = T4 + xsec.Eb
+    T1 > ΔE || return zero(xsec0(xsec)/oneunit(T4))
+    ke = sqrt(2m2 * T4)
+    p1 = sqrt(T1 * (T1 + 2m1))
+    T3 = T1 - ΔE
+    p3 = sqrt(T3 * (T3 + 2m1))
+    qmin = max(p1 - p3, ΔE)
+    qmax = p1 + p3
+    μχe = reduce_m(dmmass(xsec), xsec.me)
+    q_int::typeof(T4), _ = quad(log(qmin), log(qmax); kwargs...) do logq
+        q = exp(logq)
+        Q2 = q^2 - ΔE^2
+        return q^2 * dm_formfactor(xsec.freexsec, Q2, T1) * xsec.ionff(ke, q)
+    end
+    return xsec0(xsec) * m1^2 / (8 * μχe^2 * T1 * (T1 + 2m1) * T4) * q_int
+end
 
 
 Base.@kwdef mutable struct
@@ -198,7 +236,10 @@ Recoil spectrum of the target at rest in the scattering.
 - `m2`: Mass of the target particle 2.
 
 """
-function recoil_spectrum(xsec::XSec, T4, flux1, T1max, m1, m2; attenuation=nothing)
+function recoil_spectrum(
+    xsec::XSec, T4, flux1, T1max, m1, m2;
+    attenuation=nothing, kwargs...
+)
     T1min = T1_min(xsec, T4, m1, m2)
     T1min < T1max || return 0
 
@@ -210,12 +251,12 @@ function recoil_spectrum(xsec::XSec, T4, flux1, T1max, m1, m2; attenuation=nothi
 
     Eunit = oneunit(T1min)
     if isnothing(attenuation)
-        rate_res = quad(log(T1min / Eunit), log(T1max / Eunit)) do logT1
+        rate_res = quad(log(T1min / Eunit), log(T1max / Eunit); kwargs...) do logT1
             T1 = exp(logT1) * Eunit
             dxsecdT4(xsec, T4, T1, m1, m2) * flux1(T1) * T1
         end
     else
-        rate_res = quad(log(T1min / Eunit), log(T1max / Eunit)) do logT1
+        rate_res = quad(log(T1min / Eunit), log(T1max / Eunit); kwargs...) do logT1
             T1 = exp(logT1) * Eunit
             T1z = attenuation(T1)
             dxsecdT4(xsec, T4, T1z, m1, m2) * flux1(T1) * T1
@@ -225,23 +266,18 @@ function recoil_spectrum(xsec::XSec, T4, flux1, T1max, m1, m2; attenuation=nothi
     return rate_res[1] / m2
 end
 function recoil_spectrum(
-    xsec::XSec,
-    T4::AbstractVector,
-    T1::AbstractVector,
-    flux1::AbstractVector,
-    m1,
-    m2;
-    attenuation=nothing,
+    xsec::XSec, T4::AbstractVector, T1::AbstractVector, flux1::AbstractVector, m1, m2;
+    attenuation=nothing, kwargs...
 )
     flux_in = loginterpolator(T1, flux1)
     return recoil_spectrum.(xsec::XSec, T4, Ref(flux_in), maximum(T1), m1, m2;
-                            attenuation=attenuation)
+                            attenuation=attenuation, kwargs...)
 end
 function recoil_spectrum(
-    xsec::XSecDMElectronBound, Tr, Eb, fluxchi, mchi, me, qmax, Tchimax; unit=1, kwargs...
+    xsec::XSecDMElectronBound, Tr, fluxchi, mchi, me, qmax, Tchimax; unit=1, kwargs...
 )
     Eunit = oneunit(Tr)
-    ΔE = Tr + Eb
+    ΔE = Tr + xsec.Eb
     logqmax = log(qmax / Eunit)
     logqmin = log(ΔE / Eunit) + sqrt(eps(ΔE / Eunit))
     logqmin < logqmax || throw(DomainError("logqmin = $logqmin < logqmax = $logqmax"))
@@ -251,25 +287,40 @@ function recoil_spectrum(
 
     ke = sqrt(Tr * (Tr + 2me))
     μχe = reduce_m(mchi, me)
-    factor = xsec.sigma0 / (8 * Tr * μχe^2 * me)
-    unitzero = zero(unit / oneunit(factor))
 
-    rate_res = dblquad(
+    # Cao et al.
+    # factor = xsec0(xsec.freexsec) / (8 * Tr * μχe^2 * me)
+    # unitzero = zero(unit / oneunit(factor))
+    # rate_res::typeof(unitzero), _ = dblquad(
+    #     logqmin, logqmax, logTchimin, logTchimax; kwargs...
+    # ) do logTchi, logq
+    #     logTchi < logtchimax || return unitzero
+    #     Tchi = exp(logTchi) * Eunit
+    #     q = exp(logq) * Eunit
+    #     Q2 = q^2 - ΔE^2
+    #     pchi = sqrt(Tchi * (Tchi + 2mchi))
+    #     return (q * dm_formfactor(xsec.freexsec, Q2, Tchi)
+    #         * xsec.ionff(ke, q)
+    #         * mchi^2 / (pchi*(Tchi+mchi))
+    #         * fluxchi(Tchi)
+    #         * Tchi * q)
+    # end
+
+    factor = xsec0(xsec.freexsec) * mchi^2 / (8 * μχe^2 * Tr * me)
+    unitzero = zero(unit / oneunit(factor))
+    rate_res::typeof(unitzero), _ = dblquad(
         logqmin, logqmax, logTchimin, logTchimax; kwargs...
     ) do logTchi, logq
         logTchi < logtchimax || return unitzero
         Tchi = exp(logTchi) * Eunit
         q = exp(logq) * Eunit
         Q2 = q^2 - ΔE^2
-        pchi = sqrt(Tchi * (Tchi + 2mchi))
-        return (q * dm_formfactor(xsec.freexsec, Q2, Tchi)
-            * xsec.ironff(ke, q)
-            * mchi^2 / (pchi*(Tchi+mchi))
-            * fluxchi(Tchi)
-            * Tchi * q)
+        pchi2 = Tchi * (Tchi + 2mchi)
+        return (q * dm_formfactor(xsec.freexsec, Q2, Tchi) * xsec.ionff(ke, q) / pchi2
+                * fluxchi(Tchi) * Tchi * q)
     end
 
-    return rate_res[1] * factor
+    return rate_res * factor
 end
 
 
@@ -290,11 +341,11 @@ where ``j_1`` is the spherical Bessel function of the first kind, ``q = \sqrt{Q^
 # Arguments
 
 - `Q2`: Momentum transfer squared.
-- `A`: Nucleon number.
+- `A`: Number of nucleons.
 
 # Keywords
 
-- `s=units.fm`: The length scale, default 1 fm.
+- `s=units.fm`: The length scale, default to 1 fm.
 
 # References
 

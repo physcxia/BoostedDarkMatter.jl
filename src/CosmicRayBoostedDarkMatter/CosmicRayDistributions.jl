@@ -5,17 +5,29 @@ using JLD2: load
 
 abstract type CRDistribution end
 abstract type CRFlux end
+abstract type CRFluxElectron <: CRFlux end
 
 Broadcast.broadcastable(cr::CRDistribution) = Ref(cr)
 Broadcast.broadcastable(cr::CRFlux) = Ref(cr)
 
+
 @enum EnergyType ETR ETEk ETEkn ETEt
 
-function crflux(cr::CRFlux, coordinates; etype::EnergyType=ETEk, kwargs...)
+function crflux(cr::CRFlux, coordinates...; etype::EnergyType=ETEk, kwargs...)
     if etype == ETEk
-        return crflux_Ekn(cr, coordinates, kwargs...)
+        return crflux_Ek(cr, coordinates..., kwargs...)
+    elseif etype == ETEkn
+        return crflux_Ekn(cr, coordinates..., kwargs...)
     end
 end
+
+function (cr::CRFlux)(coordinates...; etype::EnergyType=ETEk, kwargs...)
+    return crflux(cr, coordinates...; etype=etype, kwargs...)
+end
+
+crflux_Ek(cr::CRFluxElectron, T::Number) = crflux_Ekn(cr, T)
+crflux_Ek(cr::CRFluxElectron, args...) = crflux_Ekn(cr, args...)
+# crflux_Ek(cr::CRFluxElectron, r, b, l, Ekn) = crflux_Ekn(cr, Ekn)
 
 @doc raw"""
     crflux_Ekn(cr::CRFluxSBPLElectron, coordinates::Tuple, args...; kwargs...)
@@ -43,7 +55,7 @@ function crflux_Ekn(cr::CRFlux, r, b, l, Ekn, args...; kwargs...)
 end
 
 @doc raw"""
-    CRFluxSBPLElectron{T <: Number, U <: Number, V <: Number} <: CRFlux
+    CRFluxSBPLElectron{T <: Number, U <: Number, V <: Number} <: CRFluxElectron
 
 Smooth broken power law parameterization of local CR electron flux:
 
@@ -73,7 +85,9 @@ Smooth broken power law parameterization of local CR electron flux:
     [Physical Review D, 103(11), 115010.](https://doi.org/10.1103/PhysRevD.103.115010)
 
 """
-Base.@kwdef struct CRFluxSBPLElectron{T <: Number, U <: Number, V <: Number} <: CRFlux
+Base.@kwdef struct CRFluxSBPLElectron{
+    T <: Number, U <: Number, V <: Number
+} <: CRFluxElectron
     phi0::T = 5.02e-6 * units.GeV^-1 * units.m^-2 * units.sec^-1
     Ebr1::U = 46.0 * units.GeV
     Ebr2::U = 987.8 * units.GeV
@@ -90,11 +104,10 @@ function crflux_Ekn(cr::CRFluxSBPLElectron, T::Number)
             * (T / cr.Ebr)^-cr.gamma2
             * (1 + (T / cr.Ebr2)^cr.k)^((cr.gamma2 - cr.gamma3) / cr.k))
 end
-crflux_Ek(cr::CRFluxSBPLElectron, T::Number) = crflux_Ekn(cr, T)
 
 
 @doc raw"""
-    CRFluxLISElectron{T <: Number, U <: Number} <: CRFlux
+    CRFluxLISElectron{T <: Number, U <: Number} <: CRFluxElectron
 
 A parameterization of local CR electron flux:
 
@@ -127,7 +140,7 @@ cutoff energies are set as free parameters for convenience.
     [The Astrophysical Journal 854.2 (2018): 94.](https://doi.org/10.3847/1538-4357/aaa75e)
 
 """
-Base.@kwdef struct CRFluxLISElectron{T <: Number, U <: Number} <: CRFlux
+Base.@kwdef struct CRFluxLISElectron{T <: Number, U <: Number} <: CRFluxElectron
     Tcut1::T = 0.002 * units.GeV
     Tbr::T = 6.88 * units.GeV
     Tcut2::T = 90.0 * units.GeV

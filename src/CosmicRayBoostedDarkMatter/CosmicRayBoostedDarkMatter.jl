@@ -34,9 +34,9 @@ Cosmic ray boosted dark matter (CRDM) model.
       dark matter. [JCAP 02, 028.](https://doi.org/10.1088/1475-7516/2022/02/028)
 
 """
-Base.@kwdef mutable struct CRDM{T <: Number} <: BDM
+Base.@kwdef mutable struct CRDM{T <: Number, F <: Function} <: BDM
     crdist::Dict = Dict("Electron" => CRFluxLISElectron())
-    kfactor::Dict{String, Function} = Dict{String, Function}()
+    kfactor::Dict{String, F} = Dict("Electron" => (_ -> 1units.kpc))
     Ekn_max::Dict = Dict((p => 100*units.GeV) for p in keys(crdist))
     dmprofile::DMProfile = DMPNFW(
         rho0=0.3*units.GeV/units.cm^3,
@@ -81,8 +81,11 @@ produced by selected CR species.
                 [`quad`](https://github.com/aurelio-amerio/MultiQuad.jl#quad) integrator.
 
 """
-function dmflux(bdm::CRDM, Tchi; Ekn_cutoff=nothing, fluxunit=1.0, options...)
-    flux = 0 * fluxunit
+function dmflux(
+    bdm::CRDM, Tchi;
+    Ekn_cutoff=nothing, fluxunit=1.0, options...
+)
+    flux = zero(fluxunit)
     old_target = gettarget(bdm.xsec)
     for particle in bdm.selected_cr
         A = NUCLEUS_A[particle]
@@ -102,16 +105,22 @@ function dmflux(bdm::CRDM, Tchi; Ekn_cutoff=nothing, fluxunit=1.0, options...)
 
         Ti_min < cutoff || continue
 
-        flux_res = quad(Ti_min, cutoff, options...) do Ti
+        flux_res::typeof(flux), _ = quad(Ti_min, cutoff; options...) do Ti
             ((kfactor(bdm, Ti, particle)
-                * _los_integrand(bdm, zero(bdm.rsun), 0, 0, Ti, bdm.rsun, particle)
-                * dxsecdT4(bdm.xsec, Tchi, Ti, mi, dmmass(bdm))
-                / dmmass(bdm)) * 4π)  # 4 π total flux
+              * _los_integrand(bdm, zero(bdm.rsun), 0, 0, Ti, bdm.rsun, particle)
+              * dxsecdT4(bdm.xsec, Tchi, Ti, mi, dmmass(bdm))
+              / dmmass(bdm)) * 4π)  # 4 π total flux
         end
-        flux += flux_res[1]
+        flux += flux_res
     end
     settarget!(bdm.xsec, old_target)
     return flux
+end
+
+function dmflux(
+    bdm::CRDM, Tchi, b, l;
+    Ekn_cutoff=nothing, fluxunit=1.0, options...
+)
 end
 
 """

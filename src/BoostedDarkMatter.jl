@@ -3,6 +3,9 @@ module BoostedDarkMatter
 export units
 export dmflux
 
+# Particles.jl
+export Particle, particle_A, particle_Z, particle_mass, ZA_to_pdgcode, pdgcode
+
 # Kinematics.jl
 export
     reduce_m,
@@ -12,6 +15,10 @@ export
     T1_min_nonrel,
     p1_min_q,
     T1_min_q
+
+# Attenuation.jl
+export Attenuation, dmspectrum_z, cache_dTdz!, mean_free_path
+export TzT0, T0Tz, dTzdT0, dT0dTz, T_z
 
 # Dynamics.jl
 export XSec, XSecElastic, XSecDMElectronElastic, XSecDMElectronScalarMediator
@@ -23,14 +30,12 @@ export mediatormass, mediatormass!, total_xsec
 
 # CosmicRayBoostedDarkMatter.jl
 export CRDM, kfactor, kfactor!, crdist!, select_cr!
-export CRDistribution, CRFlux, EnergyType, crflux, crflux_Ekn
+export CRDistribution, CRFlux, EnergyType, crflux, crflux_Ekn, crflux_Ek
 export CRFluxSBPLElectron, CRFluxLISElectron
 export CRFluxLISHelMod2017
 export CRDGalprop, CRDGalpropCylindrical
 export make_crflux_dict_galactic
 
-# Attenuation.jl
-export Attenuation, dmspectrum_z, cache_dTdz!
 
 
 abstract type BDM end
