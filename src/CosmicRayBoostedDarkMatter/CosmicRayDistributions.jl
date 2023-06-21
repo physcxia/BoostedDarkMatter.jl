@@ -1,7 +1,7 @@
 include("FluxConversion.jl")
 using Interpolations: linear_interpolation
 
-using JLD2: load
+using HDF5: h5open
 
 abstract type CRDistribution end
 abstract type CRFlux end
@@ -252,6 +252,10 @@ function crflux_Ekn(cr::CRDGalprop, coordinates...; particle="Proton")
             return sum([cr.crflux[p](coordinates...)
                         for p in ["Hydrogen_1", "secondary_protons"]
                         if p in keys(cr.crflux)])
+        elseif lowercase(particle) == "electron"
+            return sum([cr.crflux[p](coordinates...)
+                        for p in ["primary_electrons", "secondary_electrons"]
+                        if p in keys(cr.crflux)])
         elseif particle in keys(NUCLEUS_NAME)
             return sum([cr.crflux[p](coordinates...)
                         for p in _find_isotopes(cr, NUCLEUS_NAME[particle])])
@@ -298,15 +302,15 @@ function CRDGalpropCylindrical(
     coorunit=units.kpc,
     fluxunit=units.cm^-2 * units.sec^-1 * units.GeV^-1,
 )
-    data = load(crfilename)
-    r = data["r"]
-    z = data["z"]
-    Ekn = data["Ekin"]
+    fid = h5open(crfilename)
+    r = read(fid, "r")
+    z = read(fid, "z")
+    Ekn = read(fid, "Ekin")
     lnEkn = log.(Ekn)
     crflux = Dict{String, Function}()
-    for (key, dset) in data
-        key != "r" && key != "z" && key != "Ekin" || continue
-        p_name = split(key, '/')[1]
+    for p_name in keys(fid)
+        p_name != "r" && p_name != "z" && p_name != "Ekin" || continue
+        dset = read(fid, p_name * "/flux")
         lndset = @. ifelse(dset <= 0, -Inf, log(dset))
         itp = linear_interpolation(
             (r, z, lnEkn),
@@ -321,6 +325,7 @@ function CRDGalpropCylindrical(
 
         crflux[p_name] = wrapper
     end
+    close(fid)
     return CRDGalpropCylindrical(r, z, Ekn, crflux, Eunit, coorunit, fluxunit)
 end
 function crflux_Ek(

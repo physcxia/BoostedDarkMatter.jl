@@ -160,7 +160,7 @@ function Base.setproperty!(xsec::XSecDMElectronBound, name::Symbol, value)
 end
 
 
-function T1_min(xsec::XSecDMElectronBound, T4, m1, m2)
+function Kinematics.T1_min(xsec::XSecDMElectronBound, T4, m1, m2)
     # FIXME
     # ΔE = T4 + xsec.Eb
     # q = sqrt(

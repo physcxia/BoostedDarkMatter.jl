@@ -29,12 +29,13 @@ export dmmass, dmmass!, xsec0, xsec0!, dxsecdT4, recoil_spectrum, set_parameters
 export mediatormass, mediatormass!, total_xsec
 
 # CosmicRayBoostedDarkMatter.jl
-export CRDM, kfactor, kfactor!, crdist!, select_cr!
+export BDM, CRDM, kfactor, kfactor!, crdist!, selectcr!
 export CRDistribution, CRFlux, EnergyType, crflux, crflux_Ekn, crflux_Ek
 export CRFluxSBPLElectron, CRFluxLISElectron
 export CRFluxLISHelMod2017
 export CRDGalprop, CRDGalpropCylindrical
 export make_crflux_dict_galactic
+export h5dumpflux, h5loadflux
 
 
 
