@@ -4,7 +4,7 @@ using OrdinaryDiffEq: solve, ODEProblem, Rodas4, AutoVern7
 
 Base.@kwdef mutable struct Attenuation{D <: Dict, T <: Number, U <: XSec}
     target_density::D = Dict(
-        nuc => r * 2.7 * units.g_cm3 / BoostedDarkMatter.NUCLEUS_MASS[nuc] for (nuc, r) in
+        nuc => r * 2.7 * units.g_cm3 / particle_mass(nuc) for (nuc, r) in
         Dict(
             "O"  => 46.6e-2 / 0.985,
             "Si" => 27.7e-2 / 0.985,
@@ -75,19 +75,17 @@ function dTdz(atten::Attenuation, T; usecache=true, atol=0, rtol=1e-6, kwargs...
 
     Eunit = oneunit(T)
 
-    old_target = gettarget(atten.xsec)
     res = zero(dTdz_unit)
     for (target, density) in atten.target_density
-        settarget!(atten.xsec, target)
         m_in = dmmass(atten.xsec)
-        m_t = NUCLEUS_MASS[target]
+        m_t = particle_mass(target)
         Trmax = T4_max(atten.xsec, T, m_in, m_t)
         Trmax > atten.Tcut || continue
 
         res_quad::typeof(dTdz_unit) = zero(dTdz_unit)
         if iszero(atten.Tmin)
             res_quad, _ = quad(zero(Trmax), Trmax; atol=atol, rtol=rtol, kwargs...) do Tr
-                dxsecdT4(atten.xsec, Tr, T, m_in, m_t) * Tr * density
+                dxsecdT4(atten.xsec, Tr, T, m_in, m_t, target) * Tr * density
             end
         else
             res_quad, _ = quad(
@@ -96,7 +94,7 @@ function dTdz(atten::Attenuation, T; usecache=true, atol=0, rtol=1e-6, kwargs...
                 atol=atol, rtol=rtol, kwargs...
             ) do lnTr
                 Tr = exp(lnTr)
-                dxsecdT4(atten.xsec, Tr, T, m_in, m_t) * Tr^2 * density
+                dxsecdT4(atten.xsec, Tr, T, m_in, m_t, target) * Tr^2 * density
             end
         end
 
@@ -105,7 +103,6 @@ function dTdz(atten::Attenuation, T; usecache=true, atol=0, rtol=1e-6, kwargs...
             @error "res_quad = $res_quad <= 0, T = $T, Trmax = $Trmax"
         end
     end
-    settarget!(atten.xsec, old_target)
     return -res
 end
 
@@ -235,15 +232,12 @@ end
 
 
 function mean_free_path(atten::Attenuation, Tchi; kwargs...)
-    old_target = gettarget(atten.xsec)
     λ = 0
     for (target, density) in atten.target_density
-        settarget!(atten.xsec, target)
         σtot, _ = total_xsec(
-            atten.xsec, Tchi, dmmass(atten.xsec), NUCLEUS_MASS[target];
+            atten.xsec, Tchi, dmmass(atten.xsec), particle_mass(target), target;
             Trcut=atten.Tcut, kwargs...)
         λ += density * σtot
     end
-    settarget!(atten.xsec, old_target)
     return 1 / λ
 end

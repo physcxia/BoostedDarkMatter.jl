@@ -334,6 +334,6 @@ function crflux_Ek(
 )
     z = r * sin(b)
     rho = sqrt(rsun^2 + r * cos(b) * (r * cos(b) - 2 * rsun*cos(l)))
-    A = NUCLEUS_A[particle]
+    A = particle_A(particle)
     return crflux_Ekn(crd, rho, z, Ek / A; particle=particle) / A
 end

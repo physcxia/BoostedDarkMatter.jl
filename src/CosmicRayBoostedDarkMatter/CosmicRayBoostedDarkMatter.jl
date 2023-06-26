@@ -36,13 +36,13 @@ Cosmic ray boosted dark matter (CRDM) model.
       dark matter. [JCAP 02, 028.](https://doi.org/10.1088/1475-7516/2022/02/028)
 
 """
-Base.@kwdef mutable struct CRDM{T <: Number, F <: Function} <: BDM
+Base.@kwdef mutable struct CRDM{T <: Number} <: BDM
     crdist::Dict = Dict("Electron" => CRFluxLISElectron())
-    kfactor::Dict{String, F} = Dict("Electron" => (_ -> 1units.kpc))
+    kfactor::Dict{String, Function} = Dict{String, Function}("Electron" => (_ -> 1units.kpc))
     # TODO: need a constructor to read GALPROP data
     Ekn_max::Dict = Dict((p => 100*units.GeV) for p in keys(crdist))
     r_max::Dict = Dict((p => 20*units.kpc) for p in keys(crdist))
-    z_max::Dict = Dict((p => 0*units.kpc) for p in keys(crdist))
+    z_max::Dict = Dict((p => zero(units.kpc)) for p in keys(crdist))
     dmprofile::DMProfile = DMPNFW(
         rho0=0.3*units.GeV/units.cm^3,
         rsun=8.5*units.kpc,
@@ -91,12 +91,10 @@ function dmflux(
     Ekn_cutoff=nothing, fluxunit=1.0, kwargs...
 )
     flux = zero(fluxunit)
-    old_target = gettarget(bdm.xsec)
     for particle in bdm.selected_cr
 
         cutoff = _determine_Ekn_cutoff(bdm, particle, Ekn_cutoff)
 
-        settarget!(bdm.xsec, particle)
         mi = particle_mass(particle)
         Ti_min = T1_min(bdm.xsec, Tchi, mi, dmmass(bdm))
 
@@ -105,16 +103,15 @@ function dmflux(
         flux_res::typeof(flux), _ = quad(Ti_min, cutoff; kwargs...) do Ti
             ((kfactor(bdm, Ti, angles..., particle; kwargs...)
               * _los_integrand(bdm, zero(bdm.rsun), 0, 0, Ti, particle)
-              * dxsecdT4(bdm.xsec, Tchi, Ti, mi, dmmass(bdm))
+              * dxsecdT4(bdm.xsec, Tchi, Ti, mi, dmmass(bdm), particle)
               / dmmass(bdm)))
         end
         flux += flux_res
     end
-    settarget!(bdm.xsec, old_target)
     return flux
 end
 function _determine_Ekn_cutoff(bdm::CRDM, particle, Ekn_cutoff)
-    A = NUCLEUS_A[particle]
+    A = particle_A(particle)
     if isnothing(Ekn_cutoff)
         cutoff = bdm.Ekn_max[particle] * A
     elseif Ekn_cutoff isa Number
@@ -149,7 +146,7 @@ function kfactor!(bdm::CRDM, func::Function)
     end
     return nothing
 end
-function kfactor!(bdm::CRDM, Ti::AbstractVector, kwargs...)
+function kfactor!(bdm::CRDM, Ti::AbstractVector; kwargs...)
     for p in bdm.selected_cr
         # upper limit of r as a function of r and b
         rfun = (iszero(bdm.z_max[p]) ?

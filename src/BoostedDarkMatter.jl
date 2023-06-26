@@ -24,7 +24,6 @@ export TzT0, T0Tz, dTzdT0, dT0dTz, T_z
 export XSec, XSecElastic, XSecDMElectronElastic, XSecDMElectronScalarMediator
 export XSecDMElectronVectorMediator, XSecDMElectronBound
 export XSecDMNucleusConstant
-export settarget!, gettarget
 export dmmass, dmmass!, xsec0, xsec0!, dxsecdT4, recoil_spectrum, set_parameters!
 export mediatormass, mediatormass!, total_xsec
 

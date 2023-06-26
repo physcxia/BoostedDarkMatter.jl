@@ -19,9 +19,6 @@ function set_parameters!(xsec::XSec; params...)
         hasproperty(xsec, key) && setproperty!(xsec, key, value)
     end
 end
-settarget!(::XSec, target) = nothing
-gettarget(::XSec) = nothing
-gettarget(::XSecDMElectronElastic) = "Electron"
 
 Kinematics.T1_min(::XSec, T4, m1, m2) = error("unimplemented")
 Kinematics.T1_min(::XSecElastic, T4, m1, m2) = T1_min(T4, m1, m2)
@@ -34,7 +31,7 @@ dm_formfactor(::XSec, Q2, T1) = error("unsupproted form factor")
 
 
 """
-    dxsecdT4(xsec::XSec, T4, T1, m1, m2)
+    dxsecdT4(xsec::XSec, T4, T1, m1, m2, args...; kwargs...)
 
 Differential cross section ``\\frac{dσ}{dT_4}(T_4, T_1, m_1, m_2)``.
 
@@ -46,20 +43,20 @@ Differential cross section ``\\frac{dσ}{dT_4}(T_4, T_1, m_1, m_2)``.
 - `m2`: Mass of the target particle 2.
 
 """
-dxsecdT4(::XSec, T4, T1, m1, m2) = error("unimplemented")
+dxsecdT4(::XSec, T4, T1, m1, m2, args...; kwargs...) = error("unimplemented")
 
-function total_xsec(xsec::XSec, T1, m1, m2; Trcut=0*units.eV, options...)
+function total_xsec(xsec::XSec, T1, m1, m2, args...; Trcut=0*units.eV, kwargs...)
     Tr_max = T4_max(xsec, T1, m1, m2)
-    # res, err = quad(Trcut, Tr_max; options...) do T4
-    #     return dxsecdT4(xsec, T4, T1, m1, m2)
+    # res, err = quad(Trcut, Tr_max; kwargs...) do T4
+    #     return dxsecdT4(xsec, T4, T1, m1, m2, args...; kwargs...)
     # end
-    res, err = quad(log(Trcut), log(Tr_max); options...) do lnT4
+    res, err = quad(log(Trcut), log(Tr_max); kwargs...) do lnT4
         T4 = exp(lnT4)
-        return dxsecdT4(xsec, T4, T1, m1, m2) * T4
+        return dxsecdT4(xsec, T4, T1, m1, m2, args...; kwargs) * T4
     end
-    # res_quad = quad(log(1e-300), log(Tr_max); options...) do lnT4
+    # res_quad = quad(log(1e-300), log(Tr_max); kwargs...) do lnT4
     #     T4 = exp(lnT4)
-    #     return dxsecdT4(xsec, T4, T1, m1, m2) * T4
+    #     return dxsecdT4(xsec, T4, T1, m1, m2, args...; kwargs) * T4
     # end
     return res, err
 end
@@ -77,7 +74,7 @@ end
 function XSecDMElectronVectorMediator(sigma0, mchi, mmed, me, alpha)
     return XSecDMElectronVectorMediator(sigma0, promote(mchi, mmed, me)..., alpha)
 end
-function dxsecdT4(xsec::XSecDMElectronVectorMediator, T4, T1, m1, m2)
+function dxsecdT4(xsec::XSecDMElectronVectorMediator, T4, T1, m1, m2, args...; kwargs...)
     μχe = reduce_m(xsec.mchi, xsec.me)
     if xsec.limit_case == "light"
         return (xsec.sigma0 * (xsec.alpha*xsec.me)^4 / μχe^2
@@ -111,7 +108,7 @@ end
 
 
 """
-    dxsecdT4(xsec::XSecDMElectronScalarMediator, T4, T1, m1, m2)
+    dxsecdT4(xsec::XSecDMElectronScalarMediator, T4, T1, m1, m2, args...; kwargs...)
 
 Scalar mediated DM-electron scattering cross section.
 
@@ -123,7 +120,7 @@ XSecDMElectronScalarMediator{T <: Number, U <: Number, V <: Number} <: XSecDMEle
     mmed::U = 1e-6 * units.GeV
     alpha::V = 1/137
 end
-function dxsecdT4(xsec::XSecDMElectronScalarMediator, T4, T1, m1, m2)
+function dxsecdT4(xsec::XSecDMElectronScalarMediator, T4, T1, m1, m2, args...; kwargs...)
     me = ELECTRON_MASS
     μχe = reduce_m(xsec.mchi, me)
     Q2 = 2*m2*T4
@@ -168,7 +165,7 @@ function Kinematics.T1_min(xsec::XSecDMElectronBound, T4, m1, m2)
     T1_min(T4, m1, m2)
 end
 """ using non-relativistic approximation """
-function dxsecdT4(xsec::XSecDMElectronBound, T4, T1, m1, m2; kwargs...)
+function dxsecdT4(xsec::XSecDMElectronBound, T4, T1, m1, m2, args...; kwargs...)
     ΔE = T4 + xsec.Eb
     T1 > ΔE || return zero(xsec0(xsec)/oneunit(T4))
     ke = sqrt(2m2 * T4)
@@ -188,36 +185,35 @@ end
 
 
 Base.@kwdef mutable struct
-XSecDMNucleusConstant{T <: Number, U <: Number} <: XSecElastic
+XSecDMNucleusConstant{T <: Number, U <: Number, U2 <: Number} <: XSecElastic
     sigma0::T = 1e-30 * units.cm2
     mchi::U = 0.1 * units.GeV
-    nucleus::String = "H"
     ff::String = "helm"
-    lambda_dict::Dict = Dict(
+    lambda_dict::Dict{String, U2} = Dict(
         "Proton" => 0.77 * units.GeV^2,
         "He4" => 0.41 * units.GeV^2,
         "H" => 0.77 * units.GeV^2,
         "He" => 0.41 * units.GeV^2,
     )
 end
-settarget!(xsec::XSecDMNucleusConstant, nuc) = xsec.nucleus = nuc
-gettarget(xsec::XSecDMNucleusConstant) = xsec.nucleus
-function dxsecdT4(xsec::XSecDMNucleusConstant, T4, T1, m1, m2)
-    return dmnucleus_xsec_eff(xsec) * formfactor(xsec, 2m2*T4)^2 / T4_max(xsec, T1, m1, m2)
+function dxsecdT4(xsec::XSecDMNucleusConstant, T4, T1, m1, m2, target)
+    return (dmnucleus_xsec_eff(xsec, target) * formfactor(xsec, 2m2 * T4, target)^2
+            / T4_max(xsec, T1, m1, m2))
 end
-function dmnucleus_xsec_eff(xsec::XSecDMNucleusConstant)
-    return (xsec0(xsec) * NUCLEUS_A[xsec.nucleus]^2
-        * (reduce_m(dmmass(xsec), NUCLEUS_MASS[xsec.nucleus]) / reduce_m(dmmass(xsec), PROTON_MASS))^2)
+function dmnucleus_xsec_eff(xsec::XSecDMNucleusConstant, target)
+    return (xsec0(xsec) * particle_A(target)^2
+            * (reduce_m(dmmass(xsec), particle_mass(target))
+               / reduce_m(dmmass(xsec), PROTON_MASS))^2)
 end
-function formfactor(xsec::XSecDMNucleusConstant, Q2)
+function formfactor(xsec::XSecDMNucleusConstant, Q2, target)
     if xsec.ff == "const"
-        return one(Q2)
+        return one(Q2/Q2)
     end
-    A = NUCLEUS_A[xsec.nucleus]
+    A = particle_A(target)
     if xsec.ff == "helm" && A > 7
         return ff_helm(Q2, A)
     end
-    return 1 / (1 + Q2 / xsec.lambda_dict[xsec.nucleus]^2)^2
+    return 1 / (1 + Q2 / xsec.lambda_dict[target]^2)^2
 end
 
 
@@ -237,7 +233,7 @@ Recoil spectrum of the target at rest in the scattering.
 
 """
 function recoil_spectrum(
-    xsec::XSec, T4, flux1, T1max, m1, m2;
+    xsec::XSec, T4, flux1, T1max, m1, m2, target;
     attenuation=nothing, kwargs...
 )
     T1min = T1_min(xsec, T4, m1, m2)
@@ -253,13 +249,13 @@ function recoil_spectrum(
     if isnothing(attenuation)
         rate_res = quad(log(T1min / Eunit), log(T1max / Eunit); kwargs...) do logT1
             T1 = exp(logT1) * Eunit
-            dxsecdT4(xsec, T4, T1, m1, m2) * flux1(T1) * T1
+            dxsecdT4(xsec, T4, T1, m1, m2, target) * flux1(T1) * T1
         end
     else
         rate_res = quad(log(T1min / Eunit), log(T1max / Eunit); kwargs...) do logT1
             T1 = exp(logT1) * Eunit
             T1z = attenuation(T1)
-            dxsecdT4(xsec, T4, T1z, m1, m2) * flux1(T1) * T1
+            dxsecdT4(xsec, T4, T1z, m1, m2, target) * flux1(T1) * T1
         end
     end
 
