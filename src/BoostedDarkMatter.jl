@@ -34,7 +34,7 @@ export CRFluxSBPLElectron, CRFluxLISElectron
 export CRFluxLISHelMod2017
 export CRDGalprop, CRDGalpropCylindrical
 export make_crflux_dict_galactic
-export h5dumpflux, h5loadflux
+export h5dumpflux, h5loadflux, h5dump_bl_distribution, h5load_bl_distribution
 
 
 
@@ -42,7 +42,15 @@ abstract type BDM end
 
 Broadcast.broadcastable(bdm::BDM) = Ref(bdm)
 
-dmflux(::BDM, Tchi) = error("unimplemented")
+dmflux(::BDM, Tchi::Number) = error("unimplemented")
+function dmflux(bdm::BDM, Tchi::AbstractVector; kwargs...)
+    flux = zero(Tchi)  # TODO support unitful type
+    Threads.@threads for i in eachindex(Tchi)
+        flux[i] = dmflux(bdm, Tchi[i]; kwargs...)
+    end
+    return flux
+end
+
 dmmass(::BDM) = error("unimplemented")
 
 using NumericalTools: geomspace, loginterpolator, sqrtm1

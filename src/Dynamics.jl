@@ -52,13 +52,13 @@ function total_xsec(xsec::XSec, T1, m1, m2, args...; Trcut=0*units.eV, kwargs...
     # end
     res, err = quad(log(Trcut), log(Tr_max); kwargs...) do lnT4
         T4 = exp(lnT4)
-        return dxsecdT4(xsec, T4, T1, m1, m2, args...; kwargs) * T4
+        return dxsecdT4(xsec, T4, T1, m1, m2, args...; kwargs...) * T4
     end
     # res_quad = quad(log(1e-300), log(Tr_max); kwargs...) do lnT4
     #     T4 = exp(lnT4)
-    #     return dxsecdT4(xsec, T4, T1, m1, m2, args...; kwargs) * T4
+    #     return dxsecdT4(xsec, T4, T1, m1, m2, args...; kwargs...) * T4
     # end
-    return res, err
+    return res
 end
 
 
@@ -139,7 +139,7 @@ end
 Base.@kwdef mutable struct XSecDMElectronBound{X <: XSec, F <: Function, T <: Number} <: XSec
     freexsec::X = XSecDMElectronVectorMediator()
     ionff::F = (_, _) -> 1
-    Eb::T = 25.7units.eV
+    Eb::T = 25.7units.eV  # Xe 5s shell
 end
 # dmmass!(xsec::XSecDMElectronBound, mchi) = dmmass!(xsec.freexsec, mchi)
 # xsec0!(xsec::XSecDMElectronBound, sigma0) = xsec0!(xsec.freexsec, sigma0)
@@ -196,7 +196,7 @@ XSecDMNucleusConstant{T <: Number, U <: Number, U2 <: Number} <: XSecElastic
         "He" => 0.41 * units.GeV^2,
     )
 end
-function dxsecdT4(xsec::XSecDMNucleusConstant, T4, T1, m1, m2, target)
+function dxsecdT4(xsec::XSecDMNucleusConstant, T4, T1, m1, m2, target; kwargs...)
     return (dmnucleus_xsec_eff(xsec, target) * formfactor(xsec, 2m2 * T4, target)^2
             / T4_max(xsec, T1, m1, m2))
 end
@@ -270,10 +270,12 @@ function recoil_spectrum(
                             attenuation=attenuation, kwargs...)
 end
 function recoil_spectrum(
-    xsec::XSecDMElectronBound, Tr, fluxchi, mchi, me, qmax, Tchimax; unit=1, kwargs...
+    xsec::XSecDMElectronBound, Tr::Number, fluxchi, mchi, me, qmax, Tchimax;
+    unit=1, kwargs...
 )
     Eunit = oneunit(Tr)
     ΔE = Tr + xsec.Eb
+    qmax = min(qmax, sqrt(2me * Tr) + me - xsec.Eb)
     logqmax = log(qmax / Eunit)
     logqmin = log(ΔE / Eunit) + sqrt(eps(ΔE / Eunit))
     logqmin < logqmax || throw(DomainError("logqmin = $logqmin < logqmax = $logqmax"))
@@ -302,6 +304,7 @@ function recoil_spectrum(
     #         * Tchi * q)
     # end
 
+    # Our result
     factor = xsec0(xsec.freexsec) * mchi^2 / (8 * μχe^2 * Tr * me)
     unitzero = zero(unit / oneunit(factor))
     rate_res::typeof(unitzero), _ = dblquad(
@@ -317,6 +320,18 @@ function recoil_spectrum(
     end
 
     return rate_res * factor
+end
+function recoil_spectrum(
+    xsec::XSecDMElectronBound, Tr::AbstractVector, fluxchi, mchi, me, qmax, Tchimax;
+    unit=1, kwargs...
+)
+    dRdE = similar(Tr, typeof(unit))
+    Threads.@threads for i in eachindex(Tr)
+        dRdE[i] = recoil_spectrum(
+            xsec, Tr[i], fluxchi, mchi, me, qmax, Tchimax; unit=unit, kwargs...
+        )
+    end
+    return dRdE
 end
 
 

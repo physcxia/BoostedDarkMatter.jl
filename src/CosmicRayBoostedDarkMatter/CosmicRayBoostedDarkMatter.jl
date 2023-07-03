@@ -38,9 +38,11 @@ Cosmic ray boosted dark matter (CRDM) model.
 """
 Base.@kwdef mutable struct CRDM{T <: Number} <: BDM
     crdist::Dict = Dict("Electron" => CRFluxLISElectron())
-    kfactor::Dict{String, Function} = Dict{String, Function}("Electron" => (_ -> 1units.kpc))
+    kfactor::Dict{String, Function} = Dict{String, Function}(
+        p => (_ -> 1units.kpc) for p in keys(crdist)
+    )
     # TODO: need a constructor to read GALPROP data
-    Ekn_max::Dict = Dict((p => 100*units.GeV) for p in keys(crdist))
+    Ekn_max::Dict = Dict((p => 1000*units.GeV) for p in keys(crdist))
     r_max::Dict = Dict((p => 20*units.kpc) for p in keys(crdist))
     z_max::Dict = Dict((p => zero(units.kpc)) for p in keys(crdist))
     dmprofile::DMProfile = DMPNFW(
@@ -87,7 +89,7 @@ angle) of CRDM produced by selected CR species.
 
 """
 function dmflux(
-    bdm::CRDM, Tchi, angles...;
+    bdm::CRDM, Tchi::Number, angles...;
     Ekn_cutoff=nothing, fluxunit=1.0, kwargs...
 )
     flux = zero(fluxunit)
@@ -96,21 +98,24 @@ function dmflux(
         cutoff = _determine_Ekn_cutoff(bdm, particle, Ekn_cutoff)
 
         mi = particle_mass(particle)
-        Ti_min = T1_min(bdm.xsec, Tchi, mi, dmmass(bdm))
+        mchi = dmmass(bdm)
+        Ti_min = T1_min(bdm.xsec, Tchi, mi, mchi)
 
         Ti_min < cutoff || continue
 
         flux_res::typeof(flux), _ = quad(Ti_min, cutoff; kwargs...) do Ti
-            ((kfactor(bdm, Ti, angles..., particle; kwargs...)
-              * _los_integrand(bdm, zero(bdm.rsun), 0, 0, Ti, particle)
-              * dxsecdT4(bdm.xsec, Tchi, Ti, mi, dmmass(bdm), particle)
-              / dmmass(bdm)))
+            (kfactor(bdm, Ti, angles..., particle; kwargs...)
+             * _los_integrand(bdm, zero(bdm.rsun), 0, 0, Ti, particle) / mchi
+             * dxsecdT4(bdm.xsec, Tchi, Ti, mi, mchi, particle; kwargs...))
         end
         flux += flux_res
     end
     return flux
 end
 function _determine_Ekn_cutoff(bdm::CRDM, particle, Ekn_cutoff)
+    if lowercase(particle) == "electron"
+        return bdm.Ekn_max[particle]
+    end
     A = particle_A(particle)
     if isnothing(Ekn_cutoff)
         cutoff = bdm.Ekn_max[particle] * A
@@ -121,6 +126,7 @@ function _determine_Ekn_cutoff(bdm::CRDM, particle, Ekn_cutoff)
     else
         throw(KeyError("Unknown Ekn_cutoff type."))
     end
+    return cutoff
 end
 
 """
@@ -176,7 +182,7 @@ function kfactor(bdm::CRDM, Ek, b, l, particle; kwargs...)
     loc_value = _los_integrand(bdm, rzero, 0, 0, Ek, particle)
     loc_value > zero(loc_value) || return zero(loc_value/loc_value)
     los_max = _los_bound(b, l, bdm.r_max[particle], bdm.z_max[particle], bdm.rsun)
-    losi, _ = quad(rzero, los_max; kwargs...) do r
+    losi, _ = quad(rzero, los_max; atol=rzero, kwargs...) do r
         _los_integrand(bdm, r, b, l, Ek, particle) / loc_value
     end
     return losi
@@ -205,23 +211,25 @@ function h5dumpflux(
     groupname::Union{Nothing, String}=nothing, kwargs...
 )
     f = h5open(filename, "cw")
-    f["sigma"] = xsec0(bdm) / units.cm2
-    attributes(f["sigma"])["unit"] = "cm^2"
-    f["mchi"] = dmmass(bdm) / units.GeV
-    attributes(f["mchi"])["unit"] = "GeV"
-
     grp = isnothing(groupname) ? f : create_group(f, groupname)
+
+    grp["sigma"] = xsec0(bdm) / units.cm2
+    attributes(grp["sigma"])["unit"] = "cm^2"
+    grp["mchi"] = dmmass(bdm) / units.GeV
+    attributes(grp["mchi"])["unit"] = "GeV"
     grp["b"] = b
     attributes(grp["b"])["unit"] = "rad"
     grp["l"] = l
     attributes(grp["l"])["unit"] = "rad"
     grp["T"] = Tchi / units.GeV
-    attributes(grp["T"])["unit"] = "rad"
+    attributes(grp["T"])["unit"] = "GeV"
 
     # With reverse order in Julia since HDF5 library is C ordered
     intensity = zeros(length(Tchi), length(l), length(b))
-    for ib in eachindex(b), il in eachindex(l), iT in eachindex(Tchi)
-        intensity[iT, il, ib] = dmflux(bdm, Tchi[iT], b[ib], l[il]; rtol=0.01, kwargs...)
+    Threads.@threads for ib in eachindex(b)
+        for il in eachindex(l), iT in eachindex(Tchi)
+            intensity[iT, il, ib] = dmflux(bdm, Tchi[iT], b[ib], l[il]; rtol=0.01, kwargs...)
+        end
     end
     fluxunit = units.GeV^-1 * units.sec^-1 * units.cm^-2
     grp["intensity"] = intensity / fluxunit
@@ -230,8 +238,48 @@ function h5dumpflux(
     close(f)
 end
 
+"""Dump 2D (b, l) distribution to a hdf5 file. """
+function h5dump_bl_distribution(
+    bdm::BDM, filename::String, b::AbstractVector, l::AbstractVector, Tchimin, Tchimax;
+    groupname::Union{Nothing, String}=nothing, kwargs...
+)
+    f = h5open(filename, "cw")
+    grp = isnothing(groupname) ? f : create_group(f, groupname)
 
-"""Load the 3-D intensity dumped by `h5loadflux`. """
+    bldist = zeros(length(l), length(b))
+    fluxunit = units.sec^-1 * units.cm^-2
+
+    Threads.@threads for ib in eachindex(b)
+        for il in eachindex(l)
+            res::typeof(fluxunit), _ = quad(
+                log(Tchimin), log(Tchimax); atol=0, rtol=0.01, kwargs...
+            ) do lnT
+                T = exp(lnT)
+                return dmflux(bdm, T, b[ib], l[il]; rtol=0.01, kwargs...) * T
+            end
+            bldist[il, ib] = res
+        end
+    end
+
+    grp["sigma"] = xsec0(bdm) / units.cm2
+    attributes(grp["sigma"])["unit"] = "cm^2"
+    grp["mchi"] = dmmass(bdm) / units.GeV
+    attributes(grp["mchi"])["unit"] = "GeV"
+    grp["b"] = b
+    attributes(grp["b"])["unit"] = "rad"
+    grp["l"] = l
+    attributes(grp["l"])["unit"] = "rad"
+    grp["Tmin"] = Tchimin / units.GeV
+    attributes(grp["Tmin"])["unit"] = "GeV"
+    grp["Tmax"] = Tchimax / units.GeV
+    attributes(grp["Tmax"])["unit"] = "GeV"
+    grp["distribution"] = bldist / fluxunit
+    attributes(grp["distribution"])["unit"] = "cm^-2 s^-1 sr^-1"
+    attributes(grp["distribution"])["dimension"] = "(b, l)"
+    close(f)
+end
+
+"""Load and interpolate the 3-D intensity dumped by `h5loadflux`. """
 function h5loadflux(filename, groupname=nothing, log_scale=false)
     f = h5open(filename, "r")
     grp = isnothing(groupname) ? f : f[groupname]
@@ -239,9 +287,9 @@ function h5loadflux(filename, groupname=nothing, log_scale=false)
     l = read(grp, "l")
     T = read(grp, "T")
     flux = read(grp, "intensity")
-    lnflux = @. ifelse(flux <= 0, -Inf, log(flux))
+    lnflux = @. ifelse(flux <= 0, log(1e-300), log(flux))
     logspectrum = linear_interpolation(
-        (b, l, log.(T)), permutedims(lnflux, (3, 2, 1)), extrapolation_bc=-Inf
+        (b, l, log.(T / units.GeV)), permutedims(lnflux, (3, 2, 1)), extrapolation_bc=-Inf
     )
 
     local wrapper::Function
@@ -254,11 +302,37 @@ function h5loadflux(filename, groupname=nothing, log_scale=false)
         end
     end
 
-    blobs = (b, l, T, read(f, "sigma"), read(f, "mchi"))
+    blobs = (b, l, T, read(grp, "sigma") * units.cm2, read(grp, "mchi") * units.GeV)
     close(f)
     return wrapper, blobs
 end
 
+"""Load and interpolate the 2-D distribution dumped by `h5dump_bl_distribution`. """
+function h5load_bl_distribution(filename, groupname=nothing, log_scale=false)
+    f = h5open(filename, "r")
+    grp = isnothing(groupname) ? f : f[groupname]
+    b = read(grp, "b")
+    l = read(grp, "l")
+
+    flux = read(grp, "distribution")
+    lnflux = @. ifelse(flux <= 0, -Inf, log(flux))
+    logspectrum = linear_interpolation(
+        (b, l), permutedims(lnflux, (2, 1)), extrapolation_bc=-Inf
+    )
+
+    local wrapper::Function
+    if log_scale
+        # log probability for MCMC
+        wrapper = (b, l) -> logspectrum(b, l)
+    else
+        wrapper = (b, l) -> let fluxunit = units.sec^-1 * units.cm^-2
+            exp(logspectrum(b, l)) * fluxunit
+        end
+    end
+
+    blobs = (b, l, read(grp, "sigma") * units.cm2, read(grp, "mchi") * units.GeV)
+    return wrapper, blobs
+end
 
 """Line of sight boundary. """
 function _los_bound(b, l, rmax, zmax, rsun)
@@ -270,6 +344,7 @@ function _los_bound(b, l, rmax, zmax, rsun)
         return zmax / abs(sin(b))
     end
 
+    # TODO check 0
     return d / cos(b)
 end
 

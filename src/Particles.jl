@@ -1,10 +1,12 @@
 function particle_Z(pdgc::Int)
+    # TODO handle lepton
     d = digits(pdgc)
     Z = sum(d[i+4] * 10^(i-1) for i in 1:3)
     return Z
 end
 particle_Z(name::String) = particle_Z(pdgcode(name))
 function particle_A(pdgc::Int)
+    # TODO handle lepton
     d = digits(pdgc)
     A = sum(d[i+1] * 10^(i-1) for i in 1:3)
     return A
@@ -20,7 +22,7 @@ function pdgcode(name::String)
     return ZA_to_pdgcode(NUCLEUS_Z[name], NUCLEUS_A[name])
 end
 
-struct Particle{T}
+struct Particle{T <: Number}
     Z::Int
     A::Int
     mass::T
