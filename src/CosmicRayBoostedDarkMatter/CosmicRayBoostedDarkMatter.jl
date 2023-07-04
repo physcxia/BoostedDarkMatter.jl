@@ -1,5 +1,6 @@
 include("CosmicRayDistributions.jl")
 
+import JSON
 using HDF5: h5open, create_group, create_dataset, write, read, attributes
 
 using .Kinematics: T1_min
@@ -130,17 +131,19 @@ function _determine_Ekn_cutoff(bdm::CRDM, particle, Ekn_cutoff)
 end
 
 """
-    kfactor!(bdm::CRDM, kfactor::Number, particles="All")
-    kfactor!(bdm::CRDM, kfactor::Function, particles="All")
+    kfactor!(bdm::CRDM, kfactor::Number)
+    kfactor!(bdm::CRDM, kfactor::Function)
+    kfactor!(bdm::CRDM, jsonfile::String)
 
-Set the angular averaged effective distance. Since the calculation of ``D_\\text{eff}`` is
-time-consuming, it is better to manually set the Deff function calculated in advance.
+Set the angular averaged effective distance. Since the calculation of the ``K`` factor is
+time-consuming, it is better to manually set it in advance.
+
+The particles selected in the `bdm.selected_cr` field will be set.
 
 # Arguments
 
-- `bdm`: Deff function, given a single number means constant Deff.
-particles : str or tuple of str, optional
-    The names of particles to be set (the default is "All").
+- `bdm::CRDM`: For CRDM model.
+- `kfactor`: K factor function, given a single number means constant K factor.
 
 """
 function kfactor!(bdm::CRDM, kfactor::Number)
@@ -152,7 +155,34 @@ function kfactor!(bdm::CRDM, func::Function)
     end
     return nothing
 end
-function kfactor!(bdm::CRDM, Ti::AbstractVector; kwargs...)
+function kfactor!(bdm::CRDM, jsonfile::String)
+    data = JSON.parsefile(jsonfile)
+    for (p, kfac) in data
+        bdm.kfactor[p] = loginterpolator(
+            Vector{Float64}(kfac[1]) .* units.GeV,
+            Vector{Float64}(kfac[2]) .* units.kpc;
+            method="xlog"
+        )
+    end
+    return nothing
+end
+"""
+    kfactor!(bdm::CRDM, Ti::AbstractVector; save_to_file=nothing, kwargs...)
+
+Calculate and set the angular averaged effective distance.
+
+# Arguments
+
+- `bdm::CRDM`: For CRDM model.
+- `Ti`: Energy grid of CR kinetic energy.
+
+# Keywords
+
+- `save_to_file=nothing`: Switch whether save the results to a json file, default is no.
+                          Giving a file name means save to the file.
+
+"""
+function kfactor!(bdm::CRDM, Ti::AbstractVector; save_to_file=nothing, kwargs...)
     for p in bdm.selected_cr
         # upper limit of r as a function of r and b
         rfun = (iszero(bdm.z_max[p]) ?
@@ -163,13 +193,17 @@ function kfactor!(bdm::CRDM, Ti::AbstractVector; kwargs...)
         Threads.@threads for i in 1:length(Ti)
             local_value = _los_integrand(bdm, zero(bdm.rsun), 0, 0, Ti[i], p)
             kfacs[i], _ = tplquad(
-                0.0, 2π, b -> -π/2, b -> π/2, (l, b) -> 0.0, rfun; kwargs...
+                0.0, 2π, b -> -π/2, b -> π/2, (l, b) -> 0.0, rfun;
+                atol=0, rtol=1e-3, kwargs...
             ) do r, b, l
                 _los_integrand(bdm, r, b, l, Ti[i], p) * cos(b) / local_value
             end
             kfacs[i] /= 4π
         end
         bdm.kfactor[p] = loginterpolator(Ti, kfacs, method="xlog")
+    end
+    if !isnothing(save_to_file)
+        jsondump_kfactor(bdm, save_to_file, Ti)
     end
     return nothing
 end
@@ -202,6 +236,15 @@ function kfactor(dmp::DMProfile, rmax, zmax=zero(rmax), rsun=8.5*units.kpc)
     end
 
     return kfactor_res[1]
+end
+
+function jsondump_kfactor(bdm::BDM, filename, Ti::AbstractVector)
+    data = Dict(p => [Ti./units.GeV bdm.kfactor[p].(Ti)./units.kpc]
+                for p in keys(bdm.kfactor))
+    open(filename, "w") do f
+        write(f, JSON.json(data, 2))
+    end
+    return nothing
 end
 
 

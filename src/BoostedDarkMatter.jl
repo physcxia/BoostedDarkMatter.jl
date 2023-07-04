@@ -35,6 +35,7 @@ export CRFluxLISHelMod2017
 export CRDGalprop, CRDGalpropCylindrical
 export make_crflux_dict_galactic
 export h5dumpflux, h5loadflux, h5dump_bl_distribution, h5load_bl_distribution
+export jsondump_kfactor
 
 
 
