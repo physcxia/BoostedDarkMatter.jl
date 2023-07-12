@@ -269,8 +269,9 @@ function crflux_Ekn(cr::CRDGalprop, coordinates...; particle="Proton")
 end
 
 function make_crflux_dict_galactic(
-    cr::CRDGalprop, particles::AbstractVector, rsun=8.5*units.kpc
+    cr::CRDGalprop, particles::Union{String, AbstractVector}, rsun=8.5*units.kpc
 )
+    particles = particles isa String ? [particles] : particles
     return Dict(
         (p => (r, b, l, Ek) -> crflux_Ek(cr, r, b, l, Ek; rsun=rsun, particle=p))
         for p in particles

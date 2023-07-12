@@ -42,7 +42,6 @@ Base.@kwdef mutable struct CRDM{T <: Number} <: BDM
     kfactor::Dict{String, Function} = Dict{String, Function}(
         p => (_ -> 1units.kpc) for p in keys(crdist)
     )
-    # TODO: need a constructor to read GALPROP data
     Ekn_max::Dict = Dict((p => 1000*units.GeV) for p in keys(crdist))
     r_max::Dict = Dict((p => 20*units.kpc) for p in keys(crdist))
     z_max::Dict = Dict((p => zero(units.kpc)) for p in keys(crdist))
@@ -55,6 +54,19 @@ Base.@kwdef mutable struct CRDM{T <: Number} <: BDM
     xsec::XSec = XSecDMElectronVectorMediator()
     selected_cr::Vector{String} = collect(keys(crdist))
     rsun::T = 8.5 * units.kpc
+end
+function CRDM(xsec::XSec, crd::CRDGalpropCylindrical, particles)
+    crdist = make_crflux_dict_galactic(crd, particles)
+    r_max = maximum(crd.r) * crd.coorunit
+    z_max = maximum(crd.z) * crd.coorunit
+    Ekn_max = maximum(crd.Ekn) * crd.Eunit
+    return CRDM(
+        crdist = crdist,
+        Ekn_max = Dict((p => Ekn_max) for p in keys(crdist)),
+        r_max = Dict((p => r_max) for p in keys(crdist)),
+        z_max = Dict((p => z_max) for p in keys(crdist)),
+        xsec = xsec,
+    )
 end
 function crdist!(bdm::CRDM, crdist::Dict)
     bdm.crdist = crdist
@@ -104,7 +116,7 @@ function dmflux(
 
         Ti_min < cutoff || continue
 
-        flux_res::typeof(flux), _ = quad(Ti_min, cutoff; kwargs...) do Ti
+        flux_res::typeof(flux), _ = quad(Ti_min, cutoff; atol=zero(flux), kwargs...) do Ti
             (kfactor(bdm, Ti, angles..., particle; kwargs...)
              * _los_integrand(bdm, zero(bdm.rsun), 0, 0, Ti, particle) / mchi
              * dxsecdT4(bdm.xsec, Tchi, Ti, mi, mchi, particle; kwargs...))
@@ -247,6 +259,33 @@ function jsondump_kfactor(bdm::BDM, filename, Ti::AbstractVector)
     return nothing
 end
 
+function make_intensity_file(
+    filename::String, mchis::AbstractVector, shape::Tuple{Int, Int, Int};
+    dtype=Float64, kwargs...
+)
+    shape = reverse(shape)
+    f = h5open(filename, "cw"; kwargs...)
+    f["mchi"] = mchis ./ units.GeV
+    attributes(f["mchi"])["unit"] = "GeV"
+    dset = create_dataset(f, "sigma", dtype, ())
+    attributes(dset)["unit"] = "cm^2"
+
+    for (i, mchi) in enumerate(mchis)
+        grp = create_group(f, "m_$(i-1)")
+        dset = create_dataset(grp, "b", dtype, (shape[3],))
+        attributes(dset)["unit"] = "rad"
+        dset = create_dataset(grp, "l", dtype, (shape[2],))
+        attributes(dset)["unit"] = "rad"
+        dset = create_dataset(grp, "T", dtype, (shape[1],))
+        attributes(dset)["unit"] = "GeV"
+        dset = create_dataset(grp, "intensity", dtype, shape)
+        attributes(dset)["unit"] = "GeV^-1 cm^-2 s^-1 sr^-1"
+        attributes(dset)["dimension"] = "(b, l, T)"
+        grp["mchi"] = mchi / units.GeV
+        attributes(grp["mchi"])["unit"] = "GeV"
+    end
+    close(f)
+end
 
 """Dump 3-D intensity to a HDF5 file. """
 function h5dumpflux(
@@ -254,18 +293,13 @@ function h5dumpflux(
     groupname::Union{Nothing, String}=nothing, kwargs...
 )
     f = h5open(filename, "cw")
-    grp = isnothing(groupname) ? f : create_group(f, groupname)
+    _require_dataset(f, "sigma", xsec0(bdm) / units.cm2)
 
-    grp["sigma"] = xsec0(bdm) / units.cm2
-    attributes(grp["sigma"])["unit"] = "cm^2"
-    grp["mchi"] = dmmass(bdm) / units.GeV
-    attributes(grp["mchi"])["unit"] = "GeV"
-    grp["b"] = b
-    attributes(grp["b"])["unit"] = "rad"
-    grp["l"] = l
-    attributes(grp["l"])["unit"] = "rad"
-    grp["T"] = Tchi / units.GeV
-    attributes(grp["T"])["unit"] = "GeV"
+    grp = isnothing(groupname) ? f : f[groupname]
+    _require_dataset(grp, "mchi", dmmass(bdm) / units.GeV)
+    _require_dataset(grp, "b", b)
+    _require_dataset(grp, "l", l)
+    _require_dataset(grp, "T", Tchi / units.GeV)
 
     # With reverse order in Julia since HDF5 library is C ordered
     intensity = zeros(length(Tchi), length(l), length(b))
@@ -275,9 +309,7 @@ function h5dumpflux(
         end
     end
     fluxunit = units.GeV^-1 * units.sec^-1 * units.cm^-2
-    grp["intensity"] = intensity / fluxunit
-    attributes(grp["intensity"])["unit"] = "GeV^-1 cm^-2 s^-1 sr^-1"
-    attributes(grp["intensity"])["dimension"] = "(b, l, T)"
+    _require_dataset(grp, "intensity", intensity / fluxunit)
     close(f)
 end
 
@@ -345,7 +377,7 @@ function h5loadflux(filename, groupname=nothing, log_scale=false)
         end
     end
 
-    blobs = (b, l, T, read(grp, "sigma") * units.cm2, read(grp, "mchi") * units.GeV)
+    blobs = (b, l, T, read(f, "sigma") * units.cm2, read(f, "mchi") * units.GeV)
     close(f)
     return wrapper, blobs
 end
@@ -406,3 +438,13 @@ function _parse_particles(bdm::CRDM, particles::String)
     return [particles]
 end
 _parse_particles(::CRDM, particles::Vector{String}) = particles
+
+function _require_dataset(group, name, data)
+    if haskey(group, name)
+        dset = group[name]
+    else
+        dset = create_dataset(group, name, eltype(data), size(data))
+    end
+    write(dset, data)
+    return nothing
+end

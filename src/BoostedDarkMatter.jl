@@ -35,7 +35,7 @@ export CRFluxLISHelMod2017
 export CRDGalprop, CRDGalpropCylindrical
 export make_crflux_dict_galactic
 export h5dumpflux, h5loadflux, h5dump_bl_distribution, h5load_bl_distribution
-export jsondump_kfactor
+export jsondump_kfactor, make_intensity_file
 
 
 
@@ -56,9 +56,9 @@ dmmass(::BDM) = error("unimplemented")
 
 using NumericalTools: geomspace, loginterpolator, sqrtm1
 
-include("Units.jl")
-import .Units
-const units = Units
+include("HEPUnits.jl")
+import .HEPUnits
+const units = HEPUnits
 include("Kinematics.jl")
 using .Kinematics
 include("Constants.jl")
