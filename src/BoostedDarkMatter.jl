@@ -25,7 +25,7 @@ export XSec, XSecElastic, XSecDMElectronElastic, XSecDMElectronScalarMediator
 export XSecDMElectronVectorMediator, XSecDMElectronBound
 export XSecDMNucleusConstant
 export dmmass, dmmass!, xsec0, xsec0!, dxsecdT4, recoil_spectrum, set_parameters!
-export mediatormass, mediatormass!, total_xsec
+export mediatormass, mediatormass!, totalxsec
 
 # CosmicRayBoostedDarkMatter.jl
 export BDM, CRDM, kfactor, kfactor!, crdist!, selectcr!

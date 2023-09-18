@@ -5,6 +5,8 @@ abstract type XSec end
 abstract type XSecElastic <: XSec end
 abstract type XSecDMElectronElastic <: XSecElastic end
 
+export totalxsec_analytic
+
 Broadcast.broadcastable(xsec::XSec) = Ref(xsec)
 
 dmmass(xsec::XSec) = xsec.mchi
@@ -45,8 +47,9 @@ Differential cross section ``\\frac{dσ}{dT_4}(T_4, T_1, m_1, m_2)``.
 """
 dxsecdT4(::XSec, T4, T1, m1, m2, args...; kwargs...) = error("unimplemented")
 
-function total_xsec(xsec::XSec, T1, m1, m2, args...; Trcut=0*units.eV, kwargs...)
+function totalxsec(xsec::XSec, T1, m1, m2, args...; Trcut=zero(units.eV), kwargs...)
     Tr_max = T4_max(xsec, T1, m1, m2)
+    Trcut < Tr_max || return zero(units.cm2)
     # res, err = quad(Trcut, Tr_max; kwargs...) do T4
     #     return dxsecdT4(xsec, T4, T1, m1, m2, args...; kwargs...)
     # end
@@ -54,10 +57,6 @@ function total_xsec(xsec::XSec, T1, m1, m2, args...; Trcut=0*units.eV, kwargs...
         T4 = exp(lnT4)
         return dxsecdT4(xsec, T4, T1, m1, m2, args...; kwargs...) * T4
     end
-    # res_quad = quad(log(1e-300), log(Tr_max); kwargs...) do lnT4
-    #     T4 = exp(lnT4)
-    #     return dxsecdT4(xsec, T4, T1, m1, m2, args...; kwargs...) * T4
-    # end
     return res
 end
 
@@ -105,14 +104,41 @@ function dm_formfactor(xsec::XSecDMElectronVectorMediator, Q2, Tchi)
     return ((xsec.alpha^2 * xsec.me^2 + xsec.mmed^2)^2 / (Q2 + xsec.mmed^2)^2
         * (Tchi + xsec.mchi)^2 / xsec.mchi^2)
 end
+function totalxsec_analytic(
+    xsec::XSecDMElectronVectorMediator, T1, m1, m2, args...; kwargs...)
+    m2 == xsec.me || throw(KeyError("m2 = $m2 != xsec.me = $(xsec.me)"))
+    me = m2
+    Trmax = T4_max(xsec, T1, m1, me)
+    return (xsec0(xsec) / Trmax * (m1 + me)^2 / (2me * T1 + (m1 + me)^2)
+            * FDMintegral(xsec, T1, Trmax))
+end
+function FDMintegral(xsec::XSecDMElectronVectorMediator, T, Tp)
+    mchi = dmmass(xsec)
+    me = xsec.me
+    mchi = dmmass(xsec)
+    A = 2me * (mchi + T)^2
+    B = -(2me * T + (mchi + me)^2)
+    C = me
+    fac = 2me * mchi^2
+    if xsec.limit_case == "heavy"
+        return Tp * (A + Tp * (B / 2 + Tp * C / 3)) / fac
+    end
+    mmed = mediatormass(xsec)
+    mmed > 0 || error("mediator mass <= 0")
+    mr = mmed^2 / 2me
+    return (mr + xsec.alpha^2 * me / 2)^2 / fac * (
+            (A / mr - B + C * (Tp + 2mr)) * Tp / (Tp + mr)
+             + (2mr * C - B) * log(mr / (Tp + mr)))
+    # return (mr + xsec.alpha^2 * me / 2)^2 / fac * (
+    #     A * Tp / (mr * (Tp + mr)) + B * (-Tp / (Tp + mr) + log((Tp + mr) / mr))
+    #     + C * (Tp * (Tp + 2mr) / (Tp + mr) + 2mr * log(mr / (Tp + mr))))
+end
+
+_f0(t, r) = -1 / (t + r)
+_f1(t, r) = r / (t + r) + log(t + r)
+_f2(t, r) = -r^2  / (t + r) - 2r * log(t + r) + t
 
 
-"""
-    dxsecdT4(xsec::XSecDMElectronScalarMediator, T4, T1, m1, m2, args...; kwargs...)
-
-Scalar mediated DM-electron scattering cross section.
-
-"""
 Base.@kwdef mutable struct
 XSecDMElectronScalarMediator{T <: Number, U <: Number, V <: Number} <: XSecDMElectronElastic
     sigma0::T = 1e-30 * units.cm2
@@ -120,6 +146,12 @@ XSecDMElectronScalarMediator{T <: Number, U <: Number, V <: Number} <: XSecDMEle
     mmed::U = 1e-6 * units.GeV
     alpha::V = 1/137
 end
+"""
+    dxsecdT4(xsec::XSecDMElectronScalarMediator, T4, T1, m1, m2, args...; kwargs...)
+
+Scalar mediated DM-electron scattering cross section.
+
+"""
 function dxsecdT4(xsec::XSecDMElectronScalarMediator, T4, T1, m1, m2, args...; kwargs...)
     me = ELECTRON_MASS
     μχe = reduce_m(xsec.mchi, me)
@@ -136,7 +168,7 @@ struct IronizationFormFactor
 end
 
 
-Base.@kwdef mutable struct XSecDMElectronBound{X <: XSec, F <: Function, T <: Number} <: XSec
+Base.@kwdef mutable struct XSecDMElectronBound{X<:XSec, F<:Function, T<:Number} <: XSec
     freexsec::X = XSecDMElectronVectorMediator()
     ionff::F = (_, _) -> 1
     Eb::T = 25.7units.eV  # Xe 5s shell
