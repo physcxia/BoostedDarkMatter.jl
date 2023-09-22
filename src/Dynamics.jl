@@ -53,7 +53,7 @@ function totalxsec(xsec::XSec, T1, m1, m2, args...; Trcut=zero(units.eV), kwargs
     # res, err = quad(Trcut, Tr_max; kwargs...) do T4
     #     return dxsecdT4(xsec, T4, T1, m1, m2, args...; kwargs...)
     # end
-    res, err = quad(log(Trcut), log(Tr_max); kwargs...) do lnT4
+    res, _ = quad(log(Trcut), log(Tr_max); kwargs...) do lnT4
         T4 = exp(lnT4)
         return dxsecdT4(xsec, T4, T1, m1, m2, args...; kwargs...) * T4
     end
@@ -61,75 +61,74 @@ function totalxsec(xsec::XSec, T1, m1, m2, args...; Trcut=zero(units.eV), kwargs
 end
 
 
-Base.@kwdef mutable struct
-XSecDMElectronVectorMediator{T <: Number, U <: Number, V <: Number} <: XSecDMElectronElastic
+Base.@kwdef mutable struct XSecVectorMediator{T <: Number, U <: Number} <: XSecElastic
     sigma0::T = 1e-30 * units.cm2
     mchi::U = 1 * units.keV
     mmed::U = 1 * units.keV
-    me::U = ELECTRON_MASS
-    alpha::V = 1/137
-    limit_case::String = ""
+    mt::U = ELECTRON_MASS
+    qref::U = ELECTRON_MASS / 137
+    mediator_limit::String = ""
 end
-function XSecDMElectronVectorMediator(sigma0, mchi, mmed, me, alpha)
-    return XSecDMElectronVectorMediator(sigma0, promote(mchi, mmed, me)..., alpha)
+function XSecVectorMediator(sigma0, mchi, mmed, mt, qref, limit)
+    return XSecVectorMediator(sigma0, promote(mchi, mmed, mt, qref)..., limit)
 end
-function dxsecdT4(xsec::XSecDMElectronVectorMediator, T4, T1, m1, m2, args...; kwargs...)
-    μχe = reduce_m(xsec.mchi, xsec.me)
-    if xsec.limit_case == "light"
-        return (xsec.sigma0 * (xsec.alpha*xsec.me)^4 / μχe^2
+function dxsecdT4(xsec::XSecVectorMediator, T4, T1, m1, m2, args...; kwargs...)
+    μχt = reduce_m(xsec.mchi, xsec.mt)
+    if xsec.mediator_limit == "light"
+        return (xsec.sigma0 * xsec.qref^4 / μχt^2
                 * (2*m2*(m1 + T1)^2 - T4*((m1 + m2)^2 + 2*m2*T1) + m2*T4*T4)
                 / (4*T1*(2*m1 + T1)*(2*m2*T4)^2))
-    elseif xsec.limit_case == "heavy"
-        return (xsec.sigma0 / μχe^2
+    elseif xsec.mediator_limit == "heavy"
+        return (xsec.sigma0 / μχt^2
                 * (2*m2*(m1 + T1)^2 - T4*((m1 + m2)^2 + 2*m2*T1) + m2*T4*T4)
                 / (4*T1*(2*m1 + T1)))
-    elseif isempty(xsec.limit_case)
-        return (xsec.sigma0 * ((xsec.alpha*xsec.me)^2 + xsec.mmed^2)^2 / μχe^2
+    elseif isempty(xsec.mediator_limit)
+        return (xsec.sigma0 * (xsec.qref^2 + xsec.mmed^2)^2 / μχt^2
                 * (2*m2*(m1 + T1)^2 - T4*((m1 + m2)^2 + 2*m2*T1) + m2*T4*T4)
                 / (4*T1*(2*m1 + T1)*(2*m2*T4+xsec.mmed*xsec.mmed)^2))
     end
-    throw(KeyError("Unknown limit_case: $(xsec.limit_case)"))
+    throw(KeyError("Unknown mediator_limit: $(xsec.mediator_limit)"))
 end
 """ A Non-relativistic approximation for direct detection. """
-function dm_formfactor(xsec::XSecDMElectronVectorMediator, Q2, Tchi)
-    # return ((xsec.alpha^2 * me^2 + xsec.mmed^2)^2 / (Q2 + xsec.mmed^2)^2
-    #     * (8me^2 * (Tchi + xsec.mchi)^2 - 2me*Q2*((xsec.mchi + me)^2 + 2me * Tchi) + Q2^2)
+function dm_formfactor(xsec::XSecVectorMediator, Q2, Tchi)
+    # return ((xsec.qref^2 + xsec.mmed^2)^2 / (Q2 + xsec.mmed^2)^2
+    #     * (8me^2 * (Tchi + xsec.mchi)^2 - 2mt*Q2*((xsec.mchi + mt)^2 + 2mt * Tchi) + Q2^2)
     #     / (8me^2 * xsec.mchi^2))
     # non-relativistic approximation
-    if xsec.limit_case == "light"
-        return (xsec.alpha^2 * xsec.me^2)^2 / Q2^2 * (Tchi + xsec.mchi)^2 / xsec.mchi^2
-    elseif xsec.limit_case == "heavy"
+    if xsec.mediator_limit == "light"
+        return xsec.qref^4 / Q2^2 * (Tchi + xsec.mchi)^2 / xsec.mchi^2
+    elseif xsec.mediator_limit == "heavy"
         return (Tchi + xsec.mchi)^2 / xsec.mchi^2
     end
-    return ((xsec.alpha^2 * xsec.me^2 + xsec.mmed^2)^2 / (Q2 + xsec.mmed^2)^2
+    return ((xsec.qref^2 + xsec.mmed^2)^2 / (Q2 + xsec.mmed^2)^2
         * (Tchi + xsec.mchi)^2 / xsec.mchi^2)
 end
 function totalxsec_analytic(
-    xsec::XSecDMElectronVectorMediator, T1, m1, m2, args...; kwargs...)
-    m2 == xsec.me || throw(KeyError("m2 = $m2 != xsec.me = $(xsec.me)"))
-    me = m2
-    Trmax = T4_max(xsec, T1, m1, me)
-    return (xsec0(xsec) / Trmax * (m1 + me)^2 / (2me * T1 + (m1 + me)^2)
+    xsec::XSecVectorMediator, T1, m1, m2, args...; kwargs...)
+    m2 == xsec.mt || throw(KeyError("m2 = $m2 != xsec.mt = $(xsec.mt)"))
+    mt = m2
+    Trmax = T4_max(xsec, T1, m1, mt)
+    return (xsec0(xsec) / Trmax * (m1 + mt)^2 / (2mt * T1 + (m1 + mt)^2)
             * FDMintegral(xsec, T1, Trmax))
 end
-function FDMintegral(xsec::XSecDMElectronVectorMediator, T, Tp)
+function FDMintegral(xsec::XSecVectorMediator, T, Tp)
     mchi = dmmass(xsec)
-    me = xsec.me
+    mt = xsec.mt
     mchi = dmmass(xsec)
-    A = 2me * (mchi + T)^2
-    B = -(2me * T + (mchi + me)^2)
-    C = me
-    fac = 2me * mchi^2
-    if xsec.limit_case == "heavy"
+    A = 2mt * (mchi + T)^2
+    B = -(2mt * T + (mchi + mt)^2)
+    C = mt
+    fac = 2mt * mchi^2
+    if xsec.mediator_limit == "heavy"
         return Tp * (A + Tp * (B / 2 + Tp * C / 3)) / fac
     end
     mmed = mediatormass(xsec)
     mmed > 0 || error("mediator mass <= 0")
-    mr = mmed^2 / 2me
-    return (mr + xsec.alpha^2 * me / 2)^2 / fac * (
+    mr = mmed^2 / 2mt
+    return (mr + xsec.qref^2 / (2 * mt))^2 / fac * (
             (A / mr - B + C * (Tp + 2mr)) * Tp / (Tp + mr)
              + (2mr * C - B) * log(mr / (Tp + mr)))
-    # return (mr + xsec.alpha^2 * me / 2)^2 / fac * (
+    # return (mr + xsec.qref^2 / (2 * mt))^2 / fac * (
     #     A * Tp / (mr * (Tp + mr)) + B * (-Tp / (Tp + mr) + log((Tp + mr) / mr))
     #     + C * (Tp * (Tp + 2mr) / (Tp + mr) + 2mr * log(mr / (Tp + mr))))
 end
@@ -140,23 +139,23 @@ _f2(t, r) = -r^2  / (t + r) - 2r * log(t + r) + t
 
 
 Base.@kwdef mutable struct
-XSecDMElectronScalarMediator{T <: Number, U <: Number, V <: Number} <: XSecDMElectronElastic
+XSecScalarMediator{T <: Number, U <: Number, V <: Number} <: XSecDMElectronElastic
     sigma0::T = 1e-30 * units.cm2
     mchi::U = 0.1 * units.GeV
     mmed::U = 1e-6 * units.GeV
     alpha::V = 1/137
 end
 """
-    dxsecdT4(xsec::XSecDMElectronScalarMediator, T4, T1, m1, m2, args...; kwargs...)
+    dxsecdT4(xsec::XSecScalarMediator, T4, T1, m1, m2, args...; kwargs...)
 
 Scalar mediated DM-electron scattering cross section.
 
 """
-function dxsecdT4(xsec::XSecDMElectronScalarMediator, T4, T1, m1, m2, args...; kwargs...)
-    me = ELECTRON_MASS
-    μχe = reduce_m(xsec.mchi, me)
+function dxsecdT4(xsec::XSecScalarMediator, T4, T1, m1, m2, args...; kwargs...)
+    mt = ELECTRON_MASS
+    μχt = reduce_m(xsec.mchi, mt)
     Q2 = 2*m2*T4
-    return (xsec.sigma0 * (xsec.mmed^2+(xsec.alpha * me)^2)^2 / (32*m2*μχe^2*T1*(T1 + 2*m1))
+    return (xsec.sigma0 * (xsec.mmed^2+(xsec.alpha * mt)^2)^2 / (32*m2*μχt^2*T1*(T1 + 2*m1))
             * (4*m1^2 + Q2)*(4*m2^2 + Q2)/(xsec.mmed^2 + Q2)^2)
 end
 
@@ -169,7 +168,7 @@ end
 
 
 Base.@kwdef mutable struct XSecDMElectronBound{X<:XSec, F<:Function, T<:Number} <: XSec
-    freexsec::X = XSecDMElectronVectorMediator()
+    freexsec::X = XSecVectorMediator()
     ionff::F = (_, _) -> 1
     Eb::T = 25.7units.eV  # Xe 5s shell
 end
@@ -206,13 +205,13 @@ function dxsecdT4(xsec::XSecDMElectronBound, T4, T1, m1, m2, args...; kwargs...)
     p3 = sqrt(T3 * (T3 + 2m1))
     qmin = max(p1 - p3, ΔE)
     qmax = p1 + p3
-    μχe = reduce_m(dmmass(xsec), xsec.me)
+    μχt = reduce_m(dmmass(xsec), xsec.mt)
     q_int::typeof(T4), _ = quad(log(qmin), log(qmax); kwargs...) do logq
         q = exp(logq)
         Q2 = q^2 - ΔE^2
         return q^2 * dm_formfactor(xsec.freexsec, Q2, T1) * xsec.ionff(ke, q)
     end
-    return xsec0(xsec) * m1^2 / (8 * μχe^2 * T1 * (T1 + 2m1) * T4) * q_int
+    return xsec0(xsec) * m1^2 / (8 * μχt^2 * T1 * (T1 + 2m1) * T4) * q_int
 end
 
 
@@ -316,10 +315,10 @@ function recoil_spectrum(
     logTchimax(_) = logtchimax
 
     ke = sqrt(Tr * (Tr + 2me))
-    μχe = reduce_m(mchi, me)
+    μχt = reduce_m(mchi, me)
 
     # Cao et al.
-    # factor = xsec0(xsec.freexsec) / (8 * Tr * μχe^2 * me)
+    # factor = xsec0(xsec.freexsec) / (8 * Tr * μχt^2 * me)
     # unitzero = zero(unit / oneunit(factor))
     # rate_res::typeof(unitzero), _ = dblquad(
     #     logqmin, logqmax, logTchimin, logTchimax; kwargs...
@@ -337,7 +336,7 @@ function recoil_spectrum(
     # end
 
     # Our result
-    factor = xsec0(xsec.freexsec) * mchi^2 / (8 * μχe^2 * Tr * me)
+    factor = xsec0(xsec.freexsec) * mchi^2 / (8 * μχt^2 * Tr * me)
     unitzero = zero(unit / oneunit(factor))
     rate_res::typeof(unitzero), _ = dblquad(
         logqmin, logqmax, logTchimin, logTchimax; kwargs...
@@ -429,5 +428,5 @@ function _ff_Helm_core(x)
 end
 
 # WARNING temporary using
-Kinematics.T4_max(::XSecDMElectronVectorMediator, T1, m1, m2) = T4_max(T1, m1, m2)
+Kinematics.T4_max(::XSecVectorMediator, T1, m1, m2) = T4_max(T1, m1, m2)
 Kinematics.T4_max(::XSecDMElectronBound, T1, m1, m2) = T4_max(T1, m1, m2)

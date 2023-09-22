@@ -21,8 +21,8 @@ export Attenuation, dmspectrum_z, cache_dTdz!, mean_free_path
 export TzT0, T0Tz, dTzdT0, dT0dTz, T_z
 
 # Dynamics.jl
-export XSec, XSecElastic, XSecDMElectronElastic, XSecDMElectronScalarMediator
-export XSecDMElectronVectorMediator, XSecDMElectronBound
+export XSec, XSecElastic, XSecDMElectronElastic, XSecScalarMediator
+export XSecVectorMediator, XSecDMElectronBound
 export XSecDMNucleusConstant
 export dmmass, dmmass!, xsec0, xsec0!, dxsecdT4, recoil_spectrum, set_parameters!
 export mediatormass, mediatormass!, totalxsec

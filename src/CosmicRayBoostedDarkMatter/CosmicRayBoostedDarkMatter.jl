@@ -51,7 +51,7 @@ Base.@kwdef mutable struct CRDM{T <: Number} <: BDM
         rs=20*units.kpc,
         rcut=4e-10*units.kpc
     )
-    xsec::XSec = XSecDMElectronVectorMediator()
+    xsec::XSec = XSecVectorMediator()
     selected_cr::Vector{String} = collect(keys(crdist))
     rsun::T = 8.5 * units.kpc
 end
