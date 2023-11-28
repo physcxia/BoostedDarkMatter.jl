@@ -443,34 +443,65 @@ XSecGENIE{T <: Number, U <: Number} <: XSec
     process::String = "DMCEL"
 end
 
-function dxsecdT4(xsec::XSecGENIE, Tchi, Ti, mi, mchi, target; kwargs...)
+#  function dxsecdT4(xsec::XSecGENIE, Tchi, Ti, mi, mchi, target; kwargs...)
+function dxsecdT4(xsec::XSecGENIE, T4, T1, m1, m2, target; kwargs...)
     Z = particle_Z(target)
     A = particle_A(target)
-    Q2 = 2mchi * Tchi
-    γ = (Ti + mi) / mi
-    Echi_bar = γ * mchi
-    sigma = 2mchi  # Jacobian
-    # println(Q2, " ", Echi_bar)
-    if xsec.process == "DMEL"
-        sigma *= dp.dXSec_dQ2_DMEL(Q2, Echi_bar, Z, A)
-    elseif xsec.process == "DMCEL"
-        mi > 1 * units.GeV || return zero(sigma)
-        sigma *= dp.dXSec_dQ2_DMCEL(Q2, Echi_bar, Z, A)
-    elseif xsec.process == "DMRES"
-        sigma *= dp.dXSec_dQ2_DMRES(Q2, Echi_bar, Z, A)
-    elseif xsec.process == "DMDIS"
-        sigma *= dp.dXSec_dQ2_DMDIS(Q2, Echi_bar, Z, A)
-    elseif lowercase(xsec.process) == "all"
-        sigma *= (
-            dp.dXSec_dQ2_DMEL(Q2, Echi_bar, Z, A)
-            + dp.dXSec_dQ2_DMCEL(Q2, Echi_bar, Z, A)
-            + dp.dXSec_dQ2_DMRES(Q2, Echi_bar, Z, A)
-            + dp.dXSec_dQ2_DMDIS(Q2, Echi_bar, Z, A)
-        )
+    if m2 == dmmass(xsec)
+        mchi = m2
+        mi = m1
+        Tchi = T4
+        Ti = T1
+        Q2 = 2mchi * Tchi
+        γ = (Ti + mi) / mi
+        Echi_bar = γ * mchi
+        sigma = 2mchi  # Jacobian
+        # println(Q2, " ", Echi_bar)
+        if xsec.process == "DMEL"
+            sigma *= dp.dXSec_dQ2_DMEL(Q2, Echi_bar, Z, A)
+        elseif xsec.process == "DMCEL"
+            mi > 1 * units.GeV || return zero(sigma)  # exclude free nucleon
+            sigma *= dp.dXSec_dQ2_DMCEL(Q2, Echi_bar, Z, A)
+        elseif xsec.process == "DMRES"
+            sigma *= dp.dXSec_dQ2_DMRES(Q2, Echi_bar, Z, A)
+        elseif xsec.process == "DMDIS"
+            sigma *= dp.dXSec_dQ2_DMDIS(Q2, Echi_bar, Z, A)
+        elseif lowercase(xsec.process) == "all"
+            sigma *= (
+                dp.dXSec_dQ2_DMEL(Q2, Echi_bar, Z, A)
+                + dp.dXSec_dQ2_DMCEL(Q2, Echi_bar, Z, A)
+                + dp.dXSec_dQ2_DMRES(Q2, Echi_bar, Z, A)
+                + dp.dXSec_dQ2_DMDIS(Q2, Echi_bar, Z, A)
+            )
+        else
+            error("Unknown xsec.process: $(xsec.process)")
+        end
+        return sigma
+    elseif m1 == dmmass(xsec)
+        Echi = T1 + m1
+        Tchi = Echi - T4 # final state DM kinetic energy
+        if xsec.process == "DMEL"
+            return dp.dXSec_dTchi_DMEL(Tchi, Echi, Z, A)
+        elseif xsec.process == "DMCEL"
+            m2 > 1 * units.GeV || return zero(sigma)
+            return dp.dXSec_dTchi_DMCEL(Tchi, Echi, Z, A)
+        elseif xsec.process == "DMRES"
+            return dp.dXSec_dTchi_DMRES(Tchi, Echi, Z, A)
+        elseif xsec.process == "DMDIS"
+            return dp.dXSec_dTchi_DMDIS(Tchi, Echi, Z, A)
+        elseif lowercase(xsec.process) == "all"
+            return (
+                dp.dXSec_dQ2_DMEL(Tchi, Echi, Z, A)
+                + dp.dXSec_dQ2_DMCEL(Tchi, Echi, Z, A)
+                + dp.dXSec_dQ2_DMRES(Tchi, Echi, Z, A)
+                + dp.dXSec_dQ2_DMDIS(Tchi, Echi, Z, A)
+            )
+        else
+            error("Unknown xsec.process: $(xsec.process)")
+        end
     else
-        error("Unknown xsec.process: $(xsec.process)")
+        error("DM mass mismatch")
     end
-    return sigma
 end
 
 function Kinematics.T1_min(xsec::XSecGENIE, T4, m1, m2)
@@ -485,11 +516,10 @@ function Kinematics.T1_min(xsec::XSecGENIE, T4, m1, m2)
         xsec.process != "DMEL" || return T1_min(T4, m1, mN)
         ν = T4
         mchi = m1
-        if Wmin^2 <= mN^2 + 2ν * (mN - mchi)
-            return mchi + ν
-        end
-        return 1/2 * (ν + sqrt((mN^2+2mN*ν-W2)*(4*mchi^2+mN2+2mN*ν-W2)*((mN+ν)^2-W2))
-                          /(mN^2+2mN*ν-W2))
+        ν > (W2 - mN2) / (2*(mN - mchi)) || return Inf
+        Emin = 1/2 * (ν + sqrt(((mN + ν)^2 - W2) * (4*mchi^2 + mN2 + 2 * mN * ν - W2)
+                               / (mN^2+2*mN*ν-W2)))
+        return Emin - mchi
     # nucleus scatter off DM
     elseif dmmass(xsec) == m2
         xsec.process != "DMEL" || return m1 / mN * T1_min(T4, mN, m2)
@@ -512,13 +542,9 @@ end
 
 function BoostedDarkMatter.T4_max(xsec::XSecGENIE, T1, m1, m2)
     xsec.process != "DMCEL" || return T4_max(T1, m1, m2)
-    mpi = 140*units.MeV
     mN = 0.9396  # TODO use constants
-    mN2 = mN^2
-    Wmin = mN + mpi
-    W2 = Wmin^2
     Wcut = 1.7units.GeV
-    Q2cut = 4*units.GeV^2
+    Q2cut = 50*units.GeV^2
     # DM scatters off nucleus
     if dmmass(xsec) == m1
         xsec.process != "DMEL" || return T4_max(T1, m1, mN)
