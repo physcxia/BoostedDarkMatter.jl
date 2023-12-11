@@ -18,10 +18,6 @@ const V_ESC = 544e5 / SPEED_OF_LIGHT
 #: Velocity of the earth
 const V_EARTH = 240e5 / SPEED_OF_LIGHT
 
-const GEV_TO_KG = 1.78266192e-27
-const S_TO_DAY = 1.1574074074074e-5
-const KPC_TO_CM = 3.085677581467192e+21  # unit convert kpc to cm
-
 const ELECTRON_MASS = 0.51099895e-3 # GeV
 const ATOMIC_MASS = 0.93149410242  # GeV
 const PROTON_MASS = 0.93827208816  # GeV
@@ -97,7 +93,3 @@ const NUCLEUS_MASS = Dict(
 for nuc in keys(NUCLEUS_Z)
     NUCLEUS_MASS[nuc] = NUCLEUS_A[nuc] * ATOMIC_MASS
 end
-
-const H_BAR_GEV_S = 6.582119514e-25  # GeV*s
-const H_BAR_C_MEV_FM = 197.3269788  # MeV*fm
-const H_BAR_C_GEV_FM = 0.1973269788  # GeV*fm
