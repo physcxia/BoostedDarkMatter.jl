@@ -5,7 +5,7 @@ abstract type XSec end
 abstract type XSecElastic <: XSec end
 abstract type XSecDMElectronElastic <: XSecElastic end
 
-export totalxsec_analytic
+export totalxsec_analytic, average_energy_loss, xsec_moment
 
 Broadcast.broadcastable(xsec::XSec) = Ref(xsec)
 
@@ -47,6 +47,19 @@ Differential cross section ``\\frac{dσ}{dT_4}(T_4, T_1, m_1, m_2)``.
 """
 dxsecdT4(::XSec, T4, T1, m1, m2, args...; kwargs...) = error("unimplemented")
 
+function xsec_moment(
+    xsec::XSec, order::Int, T1, m1, m2, args...;
+    Trcut=zero(units.eV), kwargs...
+)
+    Tr_max = T4_max(xsec, T1, m1, m2)
+    Trcut < Tr_max || return zero(units.cm2)
+    res, _ = quad(Trcut, Tr_max; kwargs...) do T4
+       return T4^order * dxsecdT4(xsec, T4, T1, m1, m2, args...; kwargs...)
+    end
+
+    return res
+end
+
 function totalxsec(xsec::XSec, T1, m1, m2, args...; Trcut=zero(units.eV), kwargs...)
     Tr_max = T4_max(xsec, T1, m1, m2)
     Trcut < Tr_max || return zero(units.cm2)
@@ -58,6 +71,14 @@ function totalxsec(xsec::XSec, T1, m1, m2, args...; Trcut=zero(units.eV), kwargs
         return dxsecdT4(xsec, T4, T1, m1, m2, args...; kwargs...) * T4
     end
     return res
+end
+
+function average_energy_loss(
+    xsec::XSec, T1, m1, m2, args...;
+    Trcut=zero(units.eV), kwargs...
+)
+    return (xsec_moment(xsec, 1, T1, m1, m2, args...; Trcut=Trcut, kwargs...)
+            / totalxsec(xsec, T1, m1, m2, args...; Trcut=Trcut, kwargs...))
 end
 
 
@@ -190,28 +211,34 @@ end
 
 function Kinematics.T1_min(xsec::XSecDMElectronBound, T4, m1, m2)
     # FIXME
+    if m1 == dmmass(xsec)
+        return T4 + xsec.Eb
+    end
     # ΔE = T4 + xsec.Eb
-    # q = sqrt(
     # p1min = p1_min_q(q, ΔE, m1)
-    T1_min(T4, m1, m2)
+    return T1_min(T4, m1, m2)
 end
-""" using non-relativistic approximation """
+""" Warning: using non-relativistic approximation """
 function dxsecdT4(xsec::XSecDMElectronBound, T4, T1, m1, m2, args...; kwargs...)
+    m1 == dmmass(xsec) || error("Only DM scattering off bound electron is implemented")
     ΔE = T4 + xsec.Eb
     T1 > ΔE || return zero(xsec0(xsec)/oneunit(T4))
-    ke = sqrt(2m2 * T4)
-    p1 = sqrt(T1 * (T1 + 2m1))
+    ke = sqrt(2 * m2 * T4)
+    p1 = sqrt(T1 * (T1 + 2 * m1))
     T3 = T1 - ΔE
-    p3 = sqrt(T3 * (T3 + 2m1))
+    p3 = sqrt(T3 * (T3 + 2 * m1))
     qmin = max(p1 - p3, ΔE)
     qmax = p1 + p3
     μχt = reduce_m(dmmass(xsec), xsec.mt)
     q_int::typeof(T4), _ = quad(log(qmin), log(qmax); kwargs...) do logq
         q = exp(logq)
         Q2 = q^2 - ΔE^2
-        return q^2 * dm_formfactor(xsec.freexsec, Q2, T1) * xsec.ionff(ke, q)
+        Eχ = T1 + m1
+        #  return q^2 * dm_formfactor(xsec.freexsec, Q2, T1) * xsec.ionff(ke, q)
+        return q^2 * xsec.ionff(ke, q) * (4*Eχ * (Eχ - ΔE) - Q2)  # from Sheng Jie
     end
-    return xsec0(xsec) * m1^2 / (8 * μχt^2 * T1 * (T1 + 2m1) * T4) * q_int
+    #  return xsec0(xsec) * m1^2 / (8 * μχt^2 * T1 * (T1 + 2m1) * T4) * q_int
+    return xsec0(xsec) / (32 * μχt^2 * T1 * (T1 + 2*m1) * T4) * q_int
 end
 
 
@@ -249,7 +276,7 @@ end
 
 
 """
-    recoil_spectrum(xsec::XSec, T4, flux1, T1max, m1, m2; attenuation=nothing)
+    recoil_spectrum(xsec::XSec, T4, flux1, T1max, m1, m2, args...; attenuation=nothing)
 
 Recoil spectrum of the target at rest in the scattering.
 
@@ -264,13 +291,14 @@ Recoil spectrum of the target at rest in the scattering.
 
 """
 function recoil_spectrum(
-    xsec::XSec, T4, flux1, T1max, m1, m2, target;
+    xsec::XSec, T4, flux1, T1max, m1, m2, args...;
     attenuation=nothing, kwargs...
 )
     T1min = T1_min(xsec, T4, m1, m2)
     T1min < T1max || return 0
 
     if !isnothing(attenuation)
+        # FIXME
         # ekin_in_min = attenuation.T0Tz(ekin_in_min)
         ekin_in_min0 = attenuation.T0Tz(ekin_in_min)
         ekin_in_min = ekin_in_min0
@@ -280,26 +308,27 @@ function recoil_spectrum(
     if isnothing(attenuation)
         rate_res = quad(log(T1min / Eunit), log(T1max / Eunit); kwargs...) do logT1
             T1 = exp(logT1) * Eunit
-            dxsecdT4(xsec, T4, T1, m1, m2, target) * flux1(T1) * T1
+            dxsecdT4(xsec, T4, T1, m1, m2, args...; kwargs...) * flux1(T1) * T1
         end
     else
         rate_res = quad(log(T1min / Eunit), log(T1max / Eunit); kwargs...) do logT1
             T1 = exp(logT1) * Eunit
             T1z = attenuation(T1)
-            dxsecdT4(xsec, T4, T1z, m1, m2, target) * flux1(T1) * T1
+            dxsecdT4(xsec, T4, T1z, m1, m2, args...; kwargs...) * flux1(T1) * T1
         end
     end
 
     return rate_res[1] / m2
 end
 function recoil_spectrum(
-    xsec::XSec, T4::AbstractVector, T1::AbstractVector, flux1::AbstractVector, m1, m2;
-    attenuation=nothing, kwargs...
+    xsec::XSec, T4::AbstractVector, T1::AbstractVector, flux1::AbstractVector, m1, m2,
+    args...; attenuation=nothing, kwargs...
 )
     flux_in = loginterpolator(T1, flux1)
-    return recoil_spectrum.(xsec::XSec, T4, Ref(flux_in), maximum(T1), m1, m2;
+    return recoil_spectrum.(xsec::XSec, T4, Ref(flux_in), maximum(T1), m1, m2, args...;
                             attenuation=attenuation, kwargs...)
 end
+#=
 function recoil_spectrum(
     xsec::XSecDMElectronBound, Tr::Number, fluxchi, mchi, me, qmax, Tchimax;
     unit=1, kwargs...
@@ -364,6 +393,7 @@ function recoil_spectrum(
     end
     return dRdE
 end
+=#
 
 
 @doc raw"""
