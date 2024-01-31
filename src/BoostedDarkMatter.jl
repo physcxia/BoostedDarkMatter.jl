@@ -1,6 +1,7 @@
 module BoostedDarkMatter
 
-export units
+import HEPUnits as units
+
 export dmflux
 
 # Particles.jl
@@ -56,9 +57,6 @@ dmmass(::BDM) = error("unimplemented")
 
 using NumericalTools: geomspace, loginterpolator, sqrtm1
 
-include("HEPUnits.jl")
-import .HEPUnits
-const units = HEPUnits
 include("Kinematics.jl")
 using .Kinematics
 include("Constants.jl")
