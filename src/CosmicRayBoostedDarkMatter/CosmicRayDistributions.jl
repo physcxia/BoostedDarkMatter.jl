@@ -85,7 +85,7 @@ Smooth broken power law parameterization of local CR electron flux:
     [Physical Review D, 103(11), 115010.](https://doi.org/10.1103/PhysRevD.103.115010)
 
 """
-Base.@kwdef struct CRFluxSBPLElectron{
+@kwdef struct CRFluxSBPLElectron{
     T <: Number, U <: Number, V <: Number
 } <: CRFluxElectron
     phi0::T = 5.02e-6 * units.GeV^-1 * units.m^-2 * units.sec^-1
@@ -140,7 +140,7 @@ cutoff energies are set as free parameters for convenience.
     [The Astrophysical Journal 854.2 (2018): 94.](https://doi.org/10.3847/1538-4357/aaa75e)
 
 """
-Base.@kwdef struct CRFluxLISElectron{T <: Number, U <: Number} <: CRFluxElectron
+@kwdef struct CRFluxLISElectron{T <: Number, U <: Number} <: CRFluxElectron
     Tcut1::T = 0.002 * units.GeV
     Tbr::T = 6.88 * units.GeV
     Tcut2::T = 90.0 * units.GeV
@@ -183,7 +183,7 @@ where ``R`` is rigidity and the unit is [m``^{-2}`` s``^{-1}`` sr``^{-1}`` GV``^
     [Astrophys. J. 840, 115.](https://doi.org/10.3847/1538-4357/aa6e4f)
 
 """
-Base.@kwdef struct CRFluxLISHelMod2017{T <: Number, U <: Number} <: CRFlux
+@kwdef struct CRFluxLISHelMod2017{T <: Number, U <: Number} <: CRFlux
     params::Dict{String, Dict{Char, Vector{Float64}}} = Dict(
         "Proton" => Dict(
             'a' => [94.1, -831., 0., 16700., -10200., 0.],

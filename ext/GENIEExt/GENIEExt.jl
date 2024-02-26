@@ -2,6 +2,7 @@ module GENIEExt
 
 using BoostedDarkMatter
 import BoostedDarkMatter as bd
+import HEPUnits as units
 
 export XSecGENIE
 export dp

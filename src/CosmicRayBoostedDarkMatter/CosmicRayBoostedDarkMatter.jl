@@ -37,7 +37,7 @@ Cosmic ray boosted dark matter (CRDM) model.
       dark matter. [JCAP 02, 028.](https://doi.org/10.1088/1475-7516/2022/02/028)
 
 """
-Base.@kwdef mutable struct CRDM{T <: Number} <: BDM
+@kwdef mutable struct CRDM{T <: Number} <: BDM
     crdist::Dict = Dict("Electron" => CRFluxLISElectron())
     kfactor::Dict{String, Function} = Dict{String, Function}(
         p => (_ -> 1units.kpc) for p in keys(crdist)

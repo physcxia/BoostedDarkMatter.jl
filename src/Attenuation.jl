@@ -2,7 +2,7 @@ using Roots: find_zero, ITP
 using FiniteDifferences: central_fdm, extrapolate_fdm
 using OrdinaryDiffEq: solve, ODEProblem, Rodas4, AutoVern7
 
-Base.@kwdef mutable struct Attenuation{D <: Dict, T <: Number, U <: XSec}
+@kwdef mutable struct Attenuation{D <: Dict, T <: Number, U <: XSec}
     target_density::D = Dict(
         nuc => r * 2.7 * units.g_cm3 / particle_mass(nuc) for (nuc, r) in
         Dict(
