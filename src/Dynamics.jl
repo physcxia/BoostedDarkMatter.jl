@@ -1,4 +1,4 @@
-using MultiQuad: dblquad, quad
+using MultiQuad: quad
 # using SpecialFunctions: sphericalbesselj
 
 abstract type XSec end
@@ -245,13 +245,6 @@ function dxsecdT4(xsec::XSecPseudoScalarMediator, T4, T1, m1, m2, args...; kwarg
 end
 
 
-struct IronizationFormFactor
-    ks::AbstractVector
-    qs::AbstractVector
-    formfactor::Function
-end
-
-
 @kwdef mutable struct XSecDMElectronBound{X<:XSec, F<:Function, T<:Number} <: XSec
     freexsec::X = XSecVectorMediator()
     ionff::F = (_, _) -> 1
@@ -301,11 +294,11 @@ function dxsecdT4(xsec::XSecDMElectronBound, T4, T1, m1, m2, args...; kwargs...)
         if xsec.freexsec isa XSecVectorMediator
             factor = (4*Eχ * (Eχ - ΔE) - (q^2 - ΔE^2)) / T4
         elseif xsec.freexsec isa XSecAxialVectorMediator
-            factor = (2*Eχ * (Eχ - ΔE) - (q^2 - ΔE^2) / 2 - 2 * m1^2) / m1
+            factor = (2*Eχ * (Eχ - ΔE) - (q^2 - ΔE^2) / 2 - 2 * m1^2) / m2
         elseif xsec.freexsec isa XSecScalarMediator
             factor = (4 * m1^2 + q^2 - ΔE^2) / T4
         elseif xsec.freexsec isa XSecPseudoScalarMediator
-            factor = ((q^2 - ΔE^2) / 2) / m1
+            factor = ((q^2 - ΔE^2) / 2) / m2
         else
             error("unimplemented free xsec for bound electron scattering")
         end
