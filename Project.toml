@@ -27,6 +27,7 @@ StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 GENIEExt = ["CxxWrap", "KernelDensity", "StatsBase", "LinearAlgebra"]
 
 [compat]
+NumericalTools = "0.1.1"
 julia = "1.9"
 
 [extras]
