@@ -1,7 +1,7 @@
 name = "BoostedDarkMatter"
 uuid = "df2efd42-2b3d-4a7c-9adc-000ef4355e7c"
 authors = ["Chen Xia <xiachen17@mails.ucas.ac.cn> and contributors"]
-version = "0.0.1"
+version = "0.1.0"
 
 [deps]
 DarkMatterProfiles = "48b3a478-c9fa-42f4-b737-e59b1d0562ca"
@@ -18,13 +18,10 @@ Roots = "f2b01f46-fcfa-551c-844a-d8ac1e96c665"
 SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
 
 [weakdeps]
-CxxWrap = "1f15a43c-97ca-5a2a-ae31-89f07a497df4"
-KernelDensity = "5ab0869b-81aa-558d-bb23-cbf5423bbe9b"
-LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
-StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
+DarkProp = "a09ef8c8-622c-422a-9c1a-f97e2c50e9f6"
 
 [extensions]
-GENIEExt = ["CxxWrap", "KernelDensity", "StatsBase", "LinearAlgebra"]
+GENIEExt = ["DarkProp"]
 
 [compat]
 NumericalTools = "0.1.1"

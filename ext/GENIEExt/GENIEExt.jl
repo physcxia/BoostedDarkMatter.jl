@@ -5,10 +5,8 @@ import BoostedDarkMatter as bd
 import HEPUnits as units
 
 export XSecGENIE
-export dp
 
-include(ENV["DARKPROPJL"])
-using .DarkProp; const dp = DarkProp
+using DarkProp; const dp = DarkProp
 
 
 Base.@kwdef mutable struct XSecGENIE{T <: Number, U <: Number} <: XSec
