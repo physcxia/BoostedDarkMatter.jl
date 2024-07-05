@@ -83,19 +83,8 @@ function dTdz(atten::Attenuation, T; usecache=true, atol=0, rtol=1e-6, kwargs...
         Trmax > atten.Tcut || continue
 
         res_quad::typeof(dTdz_unit) = zero(dTdz_unit)
-        if iszero(atten.Tmin)
-            res_quad, _ = quad(zero(Trmax), Trmax; atol=atol, rtol=rtol, kwargs...) do Tr
-                dxsecdT4(atten.xsec, Tr, T, m_in, m_t, target) * Tr * density
-            end
-        else
-            res_quad, _ = quad(
-                log(atten.Tcut / Eunit),
-                log(Trmax / Eunit);
-                atol=atol, rtol=rtol, kwargs...
-            ) do lnTr
-                Tr = exp(lnTr)
-                dxsecdT4(atten.xsec, Tr, T, m_in, m_t, target) * Tr^2 * density
-            end
+        res_quad, _ = quad(zero(Trmax), Trmax; atol=atol, rtol=rtol, kwargs...) do Tr
+            dxsecdT4(atten.xsec, Tr, T, m_in, m_t, target) * Tr * density
         end
 
         res += res_quad
@@ -212,7 +201,7 @@ function dTzdT0(atten::Attenuation, T0, z)
 end
 function dTzdT0(atten::Attenuation, T0, Tz, z; kwargs...)
     T0 > zero(T0) || return zero(T0/T0)
-    deriv = central_fdm(5, 1)(t0 -> TzT0(atten, t0, z; kwargs), T0)
+    deriv = central_fdm(5, 1)(t0 -> TzT0(atten, t0, z; kwargs...), T0)
     return max(zero(deriv), deriv)
 end
 

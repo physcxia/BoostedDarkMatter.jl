@@ -27,6 +27,7 @@ export XSecScalarMediator, XSecPseudoScalarMediator
 export XSecVectorMediator, XSecAxialVectorMediator
 export XSecDMElectronBound
 export XSecDMNucleusConstant
+export XSecCombine
 export dmmass, dmmass!, xsec0, xsec0!, dxsecdT4, recoil_spectrum, set_parameters!
 export mediatormass, mediatormass!, totalxsec
 

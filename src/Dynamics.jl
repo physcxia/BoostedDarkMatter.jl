@@ -59,13 +59,13 @@ end
 function totalxsec(xsec::XSec, T1, m1, m2, args...; Trcut=zero(units.eV), kwargs...)
     Tr_max = T4_max(xsec, T1, m1, m2)
     Trcut < Tr_max || return zero(units.cm2)
-    # res, err = quad(Trcut, Tr_max; kwargs...) do T4
-    #     return dxsecdT4(xsec, T4, T1, m1, m2, args...; kwargs...)
-    # end
-    res, _ = quad(log(Trcut), log(Tr_max); kwargs...) do lnT4
-        T4 = exp(lnT4)
-        return dxsecdT4(xsec, T4, T1, m1, m2, args...; kwargs...) * T4
+    res, err = quad(Trcut, Tr_max; kwargs...) do T4
+       return dxsecdT4(xsec, T4, T1, m1, m2, args...; kwargs...)
     end
+    # res, _ = quad(log(Trcut), log(Tr_max); kwargs...) do lnT4
+    #     T4 = exp(lnT4)
+    #     return dxsecdT4(xsec, T4, T1, m1, m2, args...; kwargs...) * T4
+    # end
     return res
 end
 
@@ -102,6 +102,7 @@ function XSecVectorMediator(sigma0, mchi, mmed, qref, limit)
     return XSecVectorMediator(sigma0, promote(mchi, mmed)..., qref, limit)
 end
 function dxsecdT4(xsec::XSecVectorMediator, T4, T1, m1, m2, args...; kwargs...)
+    T4 <= T4_max(xsec, T1, m1, m2) || return zero(xsec0(xsec)/T4)
     μχt = reduce_m(xsec.mchi, check_target_mass(xsec, m1, m2))
     if xsec.mediator_limit == "light"
         return (xsec.sigma0 * xsec.qref^4 / μχt^2
@@ -245,10 +246,11 @@ function dxsecdT4(xsec::XSecPseudoScalarMediator, T4, T1, m1, m2, args...; kwarg
 end
 
 
-@kwdef mutable struct XSecDMElectronBound{X<:XSec, F<:Function, T<:Number} <: XSec
+@kwdef mutable struct XSecDMElectronBound{X<:XSec, D1<:Dict, D2<:Dict} <: XSec
     freexsec::X = XSecVectorMediator()
-    ionff::F = (_, _) -> 1
-    Eb::T = 25.7units.eV  # Xe 5s shell
+    ionff::D1 = Dict("5s" => (_, _) -> 1)
+    Eb::D2 = Dict("5s" => 25.7units.eV)  # Xe 5s shell
+    shell::Vector{String} = ["5s"]
 end
 dmmass!(xsec::XSecDMElectronBound, mchi) = dmmass!(xsec.freexsec, mchi)
 xsec0!(xsec::XSecDMElectronBound, sigma0) = xsec0!(xsec.freexsec, sigma0)
@@ -269,40 +271,46 @@ end
 function Kinematics.T1_min(xsec::XSecDMElectronBound, T4, m1, m2)
     # FIXME
     if m1 == dmmass(xsec)
-        return T4 + xsec.Eb
+        return T4 + minimum([xsec.Eb[s] for s in xsec.shell])
     end
     return T1_min(T4, m1, m2)
 end
 # WARNING temporary using
-Kinematics.T4_max(::XSecDMElectronBound, T1, m1, m2) = T4_max(T1, m1, m2)
+# Kinematics.T4_max(::XSecDMElectronBound, T1, m1, m2) = T4_max(T1, m1, m2)
+Kinematics.T4_max(::XSecDMElectronBound, T1, m1, m2) = T1
 
 """ Warning: using non-relativistic approximation """
 function dxsecdT4(xsec::XSecDMElectronBound, T4, T1, m1, m2, args...; kwargs...)
     m1 == dmmass(xsec) || error("Only DM scattering off bound electron is implemented")
-    ΔE = T4 + xsec.Eb
-    T1 > ΔE || return zero(xsec0(xsec)/oneunit(T4))
+    q_int = zero(T4)
+    μχt = reduce_m(dmmass(xsec), check_target_mass(xsec, m1, m2))
     ke = sqrt(2 * m2 * T4)
     p1 = sqrt(T1 * (T1 + 2 * m1))
-    T3 = T1 - ΔE
-    p3 = sqrt(T3 * (T3 + 2 * m1))
-    qmin = max(p1 - p3, ΔE)
-    qmax = p1 + p3
-    μχt = reduce_m(dmmass(xsec), check_target_mass(xsec, m1, m2))
-    q_int::typeof(T4), _ = quad(log(qmin), log(qmax); kwargs...) do logq
-        q = exp(logq)
-        Eχ = T1 + m1
-        if xsec.freexsec isa XSecVectorMediator
-            factor = (4*Eχ * (Eχ - ΔE) - (q^2 - ΔE^2)) / T4
-        elseif xsec.freexsec isa XSecAxialVectorMediator
-            factor = (2*Eχ * (Eχ - ΔE) - (q^2 - ΔE^2) / 2 - 2 * m1^2) / m2
-        elseif xsec.freexsec isa XSecScalarMediator
-            factor = (4 * m1^2 + q^2 - ΔE^2) / T4
-        elseif xsec.freexsec isa XSecPseudoScalarMediator
-            factor = ((q^2 - ΔE^2) / 2) / m2
-        else
-            error("unimplemented free xsec for bound electron scattering")
+    for s in xsec.shell
+        ΔE = T4 + xsec.Eb[s]
+        T1 > ΔE || continue
+        # T1 > ΔE || return zero(xsec0(xsec)/oneunit(T4))
+        T3 = T1 - ΔE
+        p3 = sqrt(T3 * (T3 + 2 * m1))
+        qmin = max(p1 - p3, ΔE)
+        qmax = p1 + p3
+        q_int_s::typeof(T4), _ = quad(log(qmin), log(qmax); kwargs...) do logq
+            q = exp(logq)
+            Eχ = T1 + m1
+            if xsec.freexsec isa XSecVectorMediator
+                factor = (4*Eχ * (Eχ - ΔE) - (q^2 - ΔE^2)) / T4
+            elseif xsec.freexsec isa XSecAxialVectorMediator
+                factor = (2*Eχ * (Eχ - ΔE) - (q^2 - ΔE^2) / 2 - 2 * m1^2) / m2
+            elseif xsec.freexsec isa XSecScalarMediator
+                factor = (4 * m1^2 + q^2 - ΔE^2) / T4
+            elseif xsec.freexsec isa XSecPseudoScalarMediator
+                factor = ((q^2 - ΔE^2) / 2) / m2
+            else
+                error("unimplemented free xsec for bound electron scattering")
+            end
+            return q^2 * xsec.ionff[s](ke, q) * factor
         end
-        return q^2 * xsec.ionff(ke, q) * factor
+        q_int += q_int_s
     end
     return xsec0(xsec) / (32 * μχt^2 * p1^2) * q_int
 end
@@ -455,4 +463,31 @@ function _ff_Helm_core(x)
         return 1.0 - 0.1 * x * x;
     end
     return one(x);
+end
+
+@kwdef mutable struct XSecCombine{X1 <: XSec, X2 <: XSec, T <: Number} <: XSec
+    xsec1::X1
+    xsec2::X2
+    Tbr::T
+end
+function dxsecdT4(xsec::XSecCombine, T4, T1, m1, m2, args...; kwargs...)
+    if T4 < xsec.Tbr
+        return dxsecdT4(xsec.xsec1, T4, T1, m1, m2, args...; kwargs...)
+    end
+    return dxsecdT4(xsec.xsec2, T4, T1, m1, m2, args...; kwargs...)
+end
+function Kinematics.T4_max(xsec::XSecCombine, T1, m1, m2)
+    T4max1 = T4_max(xsec.xsec1, T1, m1, m2)
+    T4max2 = T4_max(xsec.xsec2, T1, m1, m2)
+    return max(T4max1, T4max2)
+end
+function dmmass(xsec::XSecCombine)
+    m = dmmass(xsec.xsec1)
+    m == dmmass(xsec.xsec2) || error("m1 != m2")
+    return m
+end
+function xsec0(xsec::XSecCombine)
+    σ₀ = xsec0(xsec.xsec1)
+    σ₀ == xsec0(xsec.xsec2) || error("σ1 != σ2")
+    return σ₀
 end
